@@ -1,0 +1,25 @@
+# vidlib 配置。复制为 config.toml 后修改；config.toml 被 git 忽略。
+
+[library]
+# 视频库根目录（留空则使用 <项目>/library）
+root = ""
+# 文件命名模板，可用字段: platform uploader upload_date title id
+name_template = "{upload_date} - {title} [{id}]"
+
+[download]
+# 同时下载任务数
+concurrency = 2
+# 字幕语言（yt-dlp 正则语法），auto 字幕也会尝试
+sub_langs = ["zh.*", "en.*"]
+# Netscape 格式 cookies.txt 路径。YouTube 高清(PO Token)/B站1080P+ 通常需要。
+# 导出方法见 README。
+cookies_file = ""
+
+[evil0ctal]
+# 抖音兜底引擎：本地部署的 Douyin_TikTok_Download_API 地址（见 README）
+enabled = true
+base_url = "http://127.0.0.1:8080"
+
+[server]
+host = "127.0.0.1"
+port = 8666

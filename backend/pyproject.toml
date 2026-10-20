@@ -1,0 +1,26 @@
+[project]
+name = "vidlib"
+version = "0.1.0"
+description = "Local video library: download from YouTube/Bilibili/TikTok/Douyin, unified MP4, metadata & subtitles in SQLite"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "yt-dlp>=2026.8.19",
+    "sqlalchemy>=2.0.36",
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
