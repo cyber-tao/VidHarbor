@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -15,10 +16,24 @@ from ..downloader.postprocess import srt_to_vtt
 from ..events import bus
 from ..models import DownloadTask, Subtitle, Tag, Video
 
-log = logging.getLogger("vidlib.api.videos")
+log = logging.getLogger("vidharbor.api.videos")
 router = APIRouter()
 
 RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)")
+
+
+def _unlink_retry(p: Path, tries: int = 5, delay: float = 0.4) -> bool:
+    """Windows 下流式播放可能短暂占用文件句柄，短暂重试后再放弃。"""
+    for i in range(tries):
+        try:
+            if p.exists():
+                p.unlink()
+            return True
+        except OSError:
+            if i == tries - 1:
+                return False
+            time.sleep(delay)
+    return False
 
 
 def _video_dict(v: Video, detail: bool = False) -> dict:
@@ -44,6 +59,13 @@ def _video_dict(v: Video, detail: bool = False) -> dict:
         settings = get_settings()
         p = settings.library_root / v.video_path
         d["file_exists"] = p.exists()
+        if v.video_path:
+            try:
+                d["absolute_path"] = str(p.resolve())
+            except OSError:
+                d["absolute_path"] = str(p)
+        else:
+            d["absolute_path"] = ""
     return d
 
 
@@ -66,8 +88,9 @@ def list_videos(
             ))
         if platform:
             query = query.filter(Video.platform == platform)
-        if tag:
-            query = query.filter(Video.tags.any(Tag.name == tag))
+        # 支持逗号分隔多标签（AND 语义）
+        for tname in [t.strip() for t in tag.split(",") if t.strip()]:
+            query = query.filter(Video.tags.any(Tag.name == tname))
         total = query.count()
         rows = (
             query.order_by(Video.created_at.desc(), Video.id.desc())
@@ -77,6 +100,26 @@ def list_videos(
         )
         return {"total": total, "page": page, "page_size": page_size,
                 "items": [_video_dict(v) for v in rows]}
+
+
+@router.get("/api/tags")
+def list_tags(platform: str = "", q: str = ""):
+    """标签聚合（按视频数排序），供视频库筛选条使用。"""
+    from sqlalchemy import func
+
+    sm = get_sessionmaker()
+    with sm() as session:
+        query = (
+            session.query(Tag.name, func.count(Tag.id).label("count"))
+            .join(Video, Video.id == Tag.video_id)
+            .group_by(Tag.name)
+        )
+        if platform:
+            query = query.filter(Video.platform == platform)
+        if q:
+            query = query.filter(Tag.name.like(f"%{q}%"))
+        rows = query.order_by(func.count(Tag.id).desc(), Tag.name.asc()).limit(200).all()
+        return {"tags": [{"name": name, "count": count} for name, count in rows]}
 
 
 @router.get("/api/videos/{video_id}")
@@ -186,17 +229,19 @@ def delete_video(video_id: int, delete_files: bool = True):
         session.delete(v)
         session.commit()
     removed = 0
+    failed: list[str] = []
     if delete_files:
         for rel in rel_files:
             if not rel:
                 continue
             p = settings.library_root / rel
-            try:
-                if p.exists():
-                    p.unlink()
-                    removed += 1
-            except OSError as e:
-                log.warning("删除文件失败 %s: %s", p, e)
+            if not p.exists():
+                continue
+            if _unlink_retry(p):
+                removed += 1
+            else:
+                failed.append(str(p))
+                log.warning("删除文件失败（可能仍被占用）: %s", p)
         # 清理空目录
         for rel in {str(Path(r).parent) for r in rel_files if r}:
             d = settings.library_root / rel
@@ -205,6 +250,7 @@ def delete_video(video_id: int, delete_files: bool = True):
                     d.rmdir()
             except OSError:
                 pass
-    log.info("删除视频 [%s] %s（清理 %d 个文件）", video_id, title[:50], removed)
+    log.info("删除视频 [%s] %s（清理 %d 个文件%s）", video_id, title[:50], removed,
+             f"，{len(failed)} 个失败" if failed else "")
     bus.mark_stats_dirty()
-    return {"deleted": True, "files_removed": removed}
+    return {"deleted": True, "files_removed": removed, "files_failed": len(failed)}

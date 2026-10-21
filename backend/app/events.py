@@ -12,7 +12,7 @@ import time
 from collections import deque
 from typing import Any
 
-logger = logging.getLogger("vidlib.events")
+logger = logging.getLogger("vidharbor.events")
 
 
 class EventBus:

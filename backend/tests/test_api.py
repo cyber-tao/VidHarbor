@@ -43,6 +43,102 @@ class TestTaskValidation:
     def test_task_404(self, client):
         assert client.post("/api/tasks/99999/retry").status_code == 404
 
+    def test_create_with_options(self, client):
+        """创建任务带下载选项；随后取消清理。"""
+        res = client.post("/api/tasks", json={
+            "urls": ["https://www.youtube.com/watch?v=nevergonnahappen1"],
+            "options": {"max_height": 720, "codec": "h265"},
+        })
+        assert res.status_code == 200
+        t = res.json()["tasks"][0]
+        assert t["options"]["max_height"] == 720
+        client.delete(f"/api/tasks/{t['id']}")
+
+
+class TestSettingsAPI:
+    def test_get_settings(self, client):
+        res = client.get("/api/settings").json()
+        assert res["settings"]["download"]["max_height"] >= 0
+        assert res["meta"]["hevc_encoder"] in ("libx265", "hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_videotoolbox")
+
+    def test_put_and_restore(self, client):
+        import json as _json
+
+        from app.db import get_sessionmaker
+        from app.models import AppSetting
+
+        sm = get_sessionmaker()
+        with sm() as s:
+            row = s.get(AppSetting, 1)
+            original = row.data if row is not None else None
+        r = client.put("/api/settings", json={"download": {"max_height": 480}})
+        assert r.status_code == 200
+        assert r.json()["settings"]["download"]["max_height"] == 480
+        assert client.get("/api/settings").json()["settings"]["download"]["max_height"] == 480
+        # 非法字段拒绝（未知 section 或未知字段 → 400/422）
+        r1 = client.put("/api/settings", json={"server": {"port": 1234}})
+        assert r1.status_code in (400, 422)
+        # 还原测试前的原始覆盖值（直接删行会连带清掉用户保存的其它设置，如兜底 API key）
+        from app.config import invalidate_settings_cache
+        with sm() as s:
+            row = s.get(AppSetting, 1)
+            if original is None:
+                if row is not None:
+                    s.delete(row)
+            else:
+                if row is None:
+                    s.add(AppSetting(id=1, data=original))
+                else:
+                    row.data = original
+            s.commit()
+        invalidate_settings_cache()
+        expected = 1080 if original is None else _json.loads(original).get("download", {}).get("max_height", 1080)
+        assert client.get("/api/settings").json()["settings"]["download"]["max_height"] == expected
+
+
+class TestTagsAPI:
+    def test_tags_shape(self, client):
+        res = client.get("/api/tags").json()
+        assert isinstance(res["tags"], list)
+        if res["tags"]:
+            assert set(res["tags"][0]) == {"name", "count"}
+
+
+class TestSchedulesAPI:
+    PAYLOAD = {
+        "name": "测试任务", "mode": "weekly", "at_time": "08:30", "weekdays": [0, 5],
+        "selections": [
+            {"platform": "bilibili", "category": "4", "period": "week", "limit": 5},
+            {"platform": "youtube", "category": "custom:music", "period": "month", "limit": 3},
+        ],
+    }
+
+    def test_crud(self, client):
+        r = client.post("/api/schedules", json=self.PAYLOAD)
+        assert r.status_code == 200
+        row = r.json()["schedule"]
+        assert row["trigger_desc"].startswith("周一")
+        sid = row["id"]
+        # 列表带 next_run_at（调度器在 lifespan 中已启动）
+        lst = client.get("/api/schedules").json()["schedules"]
+        assert any(s["id"] == sid and s["next_run_at"] for s in lst)
+        # 开关
+        assert client.post(f"/api/schedules/{sid}/toggle").json()["schedule"]["enabled"] is False
+        # 更新
+        upd = dict(self.PAYLOAD, name="改名", mode="interval", interval_minutes=120)
+        assert client.put(f"/api/schedules/{sid}", json=upd).status_code == 200
+        # 删除
+        assert client.delete(f"/api/schedules/{sid}").json()["deleted"] is True
+
+    def test_validation(self, client):
+        r = client.post("/api/schedules", json={"name": "x", "mode": "bad", "selections": []})
+        assert r.status_code in (400, 422)
+        bad_cron = dict(self.PAYLOAD, mode="cron", cron="not a cron")
+        assert client.post("/api/schedules", json=bad_cron).status_code == 400
+        bad_platform = dict(self.PAYLOAD)
+        bad_platform["selections"] = [{"platform": "netflix", "category": "x", "limit": 1}]
+        assert client.post("/api/schedules", json=bad_platform).status_code == 400
+
 
 class TestEvents:
     def test_sse_stream(self, client):
@@ -57,3 +153,55 @@ class TestEvents:
                     raise AssertionError("SSE 未按预期输出 hello/tasks 事件")
             assert "event: hello" in buf
             assert "event: tasks" in buf
+
+
+class TestVideoDelete:
+    """删除视频：文件被短暂占用（Windows 流式播放句柄）时重试后仍能删掉。"""
+
+    def _make_dummy(self):
+        import uuid
+        from app.config import get_settings
+        from app.db import get_sessionmaker
+        from app.models import Video
+
+        settings = get_settings()
+        rel = f"videos/_test/{uuid.uuid4().hex}.mp4"
+        p = settings.library_root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"x" * 16)
+        sm = get_sessionmaker()
+        with sm() as s:
+            v = Video(platform="other", source_id=rel, url="https://example.com",
+                      title="删除重试测试", video_path=rel)
+            s.add(v)
+            s.commit()
+            vid = v.id
+        return vid, p
+
+    def test_delete_removes_file(self, client):
+        vid, p = self._make_dummy()
+        r = client.delete(f"/api/videos/{vid}")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["deleted"] is True
+        assert body["files_removed"] == 1
+        assert not p.exists()
+
+    def test_delete_with_locked_file_retries(self, client):
+        """模拟流式播放占用：先持句柄删除失败，0.5s 后释放，重试应成功。"""
+        import threading
+        vid, p = self._make_dummy()
+        fh = open(p, "rb")
+        try:
+            timer = threading.Timer(1.0, fh.close)
+            timer.start()
+            r = client.delete(f"/api/videos/{vid}")
+            timer.join()
+            assert r.status_code == 200
+            assert r.json()["files_removed"] == 1
+            assert not p.exists()
+        finally:
+            if not fh.closed:
+                fh.close()
+            if p.exists():
+                p.unlink(missing_ok=True)

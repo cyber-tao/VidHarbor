@@ -6,6 +6,8 @@ const routes = [
   { path: '/tasks', name: 'tasks', component: () => import('./views/TasksView.vue') },
   { path: '/library', name: 'library', component: () => import('./views/LibraryView.vue') },
   { path: '/video/:id', name: 'video', component: () => import('./views/VideoDetailView.vue') },
+  { path: '/schedules', name: 'schedules', component: () => import('./views/SchedulesView.vue') },
+  { path: '/settings', name: 'settings', component: () => import('./views/SettingsView.vue') },
 ]
 
 export default createRouter({

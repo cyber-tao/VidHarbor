@@ -66,7 +66,7 @@ watch(
       <div v-for="(l, i) in events.logs" :key="i" class="whitespace-pre-wrap break-all">
         <span class="text-zinc-600">{{ fmtTime(l.ts) }}</span>
         <span :class="levelClass[l.level] || 'text-zinc-400'"> {{ l.level.padEnd(7) }}</span>
-        <span class="text-zinc-500"> {{ l.name.replace('vidlib.', '') }} </span>
+        <span class="text-zinc-500"> {{ l.name.replace('vidharbor.', '') }} </span>
         <span :class="l.level === 'ERROR' || l.level === 'WARNING' ? '' : 'text-zinc-300'">{{ l.message }}</span>
       </div>
     </div>

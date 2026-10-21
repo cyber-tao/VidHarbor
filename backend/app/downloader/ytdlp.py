@@ -10,8 +10,9 @@ from typing import Callable
 import yt_dlp
 
 from ..config import Settings
+from .options import EffectiveOptions, build_format_selector, resolve_options
 
-log = logging.getLogger("vidlib.ytdlp")
+log = logging.getLogger("vidharbor.ytdlp")
 
 VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".mov", ".flv", ".ts", ".m4v", ".avi"}
 THUMB_EXTS = (".jpg", ".jpeg", ".webp", ".png")
@@ -64,6 +65,7 @@ def _fmt_eta(sec) -> str:
 
 
 # 优先 H.264 + mp4（多数情况仅 remux 即可），失败逐级放宽，最后交由后处理转码
+# 旧版静态选择器保留作为兜底；新逻辑见 options.build_format_selector
 FORMAT_SEL = (
     "bv*[vcodec^=avc1][ext=mp4]+ba[ext=mp4]"
     "/b[vcodec^=avc1][ext=mp4]"
@@ -80,6 +82,8 @@ def ytdlp_download(
     on_progress: Callable[[float, str, str], None] | None = None,
     on_stage: Callable[[str], None] | None = None,
     cancel_event=None,
+    eff: EffectiveOptions | None = None,
+    platform: str = "",
 ) -> RawDownload:
     """下载单个视频。成功返回媒体文件/字幕/缩略图；失败返回 error。取消抛 DownloadCancelled。"""
 
@@ -99,15 +103,17 @@ def ytdlp_download(
         if d.get("status") == "started" and on_stage is not None:
             on_stage("merging")
 
+    if eff is None:
+        eff = resolve_options(settings, None)
     opts: dict = {
-        "format": FORMAT_SEL,
+        "format": build_format_selector(eff),
         "merge_output_format": "mp4",
         "outtmpl": {"default": str(temp_dir / "%(id)s.%(ext)s")},
         "writeinfojson": True,
         "writethumbnail": True,
         "writesubtitles": True,
         "writeautomaticsubs": True,
-        "subtitleslangs": list(settings.download.sub_langs),
+        "subtitleslangs": list(eff.sub_langs),
         "convertsubs": "srt",
         "progress_hooks": [hook],
         "postprocessor_hooks": [pp_hook],
@@ -121,7 +127,7 @@ def ytdlp_download(
         "concurrent_fragment_downloads": 4,
         "logger": _YtdlpLogger(),
     }
-    cookies = settings.cookies_path
+    cookies = settings.cookie_file_for(platform) if platform else settings.cookies_path
     if cookies:
         opts["cookiefile"] = str(cookies)
 

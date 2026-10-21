@@ -6,16 +6,86 @@ import logging
 import re
 import shutil
 import subprocess
+import tempfile
+import threading
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from ..config import Settings
 from ..models import DownloadTask, Subtitle, Tag, Video
 from ..naming import build_filename, build_relpath
-from .ytdlp import RawDownload
+from .options import EffectiveOptions
+from .ytdlp import DownloadCancelled, RawDownload
 
-log = logging.getLogger("vidlib.postprocess")
+log = logging.getLogger("vidharbor.postprocess")
 
 KNOWN_PLATFORMS = {"youtube", "bilibili", "tiktok", "douyin"}
+
+
+def _run_ffmpeg(cmd: list[str], cancel: threading.Event | None = None, timeout: int = 7200) -> None:
+    """跑 ffmpeg 子进程：取消/超时立即 kill，失败抛 RuntimeError。
+
+    stderr 落临时文件而不是 PIPE——轮询期间没人读管道，输出多了会撑爆缓冲区死锁。
+    """
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as errf:
+        p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=errf)
+        start = time.monotonic()
+        while p.poll() is None:
+            if cancel is not None and cancel.is_set():
+                p.kill()
+                p.wait()
+                raise DownloadCancelled()
+            if time.monotonic() - start > timeout:
+                p.kill()
+                p.wait()
+                raise RuntimeError(f"ffmpeg 超时（>{timeout}s）已终止")
+            time.sleep(0.5)
+        code = p.returncode
+        errf.seek(0)
+        err = errf.read()
+    if code != 0:
+        raise RuntimeError(f"ffmpeg 失败: {err[-800:]}")
+
+
+class _Limiter:
+    """可动态调上限的信号量：上限改小不影响在跑的，超出的线程排队等待。"""
+
+    def __init__(self, limit: int = 1) -> None:
+        self._limit = max(1, int(limit))
+        self._used = 0
+        self._cond = threading.Condition()
+
+    def set_limit(self, limit: int) -> None:
+        with self._cond:
+            new = max(1, int(limit))
+            if new == self._limit:
+                return
+            self._limit = new
+            self._cond.notify_all()
+
+    @contextmanager
+    def slot(self, cancel: threading.Event | None = None):
+        with self._cond:
+            while self._used >= self._limit:
+                if cancel is not None and cancel.is_set():
+                    raise DownloadCancelled()
+                self._cond.wait(timeout=0.5)
+            self._used += 1
+        try:
+            yield
+        finally:
+            with self._cond:
+                self._used -= 1
+                self._cond.notify()
+
+
+# 全局转码限流：转码很吃 CPU/GPU，多个任务同时下载完也只允许 N 个同时转码
+_transcode_limiter = _Limiter(1)
+
+
+def set_transcode_limit(limit: int) -> None:
+    _transcode_limiter.set_limit(limit)
 
 
 def run_ffprobe(path: Path) -> dict:
@@ -45,8 +115,17 @@ def parse_fps(rate: str | None) -> float:
         return 0.0
 
 
-def ensure_mp4(src: Path, out_dir: Path) -> tuple[Path, str]:
-    """统一为 faststart MP4。H.264+AAC 无损 remux；否则转码 libx264 CRF18 + AAC 192k。"""
+def ensure_mp4(
+    src: Path, out_dir: Path, video_codec: str = "h264", hw_encoder: str = "auto",
+    cancel: threading.Event | None = None,
+) -> tuple[Path, str]:
+    """统一为 faststart MP4。目标编码匹配 + AAC → 无损 remux；否则转码。
+
+    - 目标 h264：H.264+AAC remux；其余转码 libx264 CRF18。
+    - 目标 h265：HEVC+AAC remux（补 hvc1 tag）；其余按探测到的编码器转码（硬件优先）。
+    """
+    from .encoders import ENCODER_ARGS, detect_hevc_encoder
+
     probe = run_ffprobe(src)
     streams = probe.get("streams") or []
     v = _first_stream(probe, "video")
@@ -54,13 +133,24 @@ def ensure_mp4(src: Path, out_dir: Path) -> tuple[Path, str]:
     if v is None:
         raise ValueError("文件中没有视频流（可能是纯音频或图集，暂不支持入库）")
 
+    src_vcodec = str(v.get("codec_name") or "")
+    target = "h265" if video_codec == "h265" else "h264"
+
     need_transcode = False
     args: list[str] = []
-    if v.get("codec_name") == "h264":
-        args += ["-c:v", "copy"]
+    if target == "h265":
+        if src_vcodec in ("hevc", "h265"):
+            args += ["-c:v", "copy", "-tag:v", "hvc1"]
+        else:
+            encoder = detect_hevc_encoder(hw_encoder)
+            need_transcode = True
+            args += ENCODER_ARGS[encoder] + ["-tag:v", "hvc1"]
     else:
-        need_transcode = True
-        args += ["-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p"]
+        if src_vcodec == "h264":
+            args += ["-c:v", "copy"]
+        else:
+            need_transcode = True
+            args += ["-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p"]
     if a is None:
         args += ["-an"]
     elif a.get("codec_name") == "aac":
@@ -73,11 +163,16 @@ def ensure_mp4(src: Path, out_dir: Path) -> tuple[Path, str]:
     out = out_dir / "final.mp4"
     cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(src), *args,
            "-movflags", "+faststart", str(out)]
-    p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=7200)
-    if p.returncode != 0 or not out.exists():
-        raise RuntimeError(f"ffmpeg 失败: {(p.stderr or '')[-800:]}")
+    if need_transcode:
+        # 全局转码限流：占满时在此排队（取消可立即退出队列）；转码中取消会立即 kill ffmpeg
+        with _transcode_limiter.slot(cancel=cancel):
+            _run_ffmpeg(cmd, cancel=cancel)
+    else:
+        _run_ffmpeg(cmd, cancel=cancel)
+    if not out.exists():
+        raise RuntimeError("ffmpeg 失败: 没有生成输出文件")
     action = "transcode" if need_transcode else "remux"
-    log.info("后处理完成: %s → %s (%s)", src.name, out.name, action)
+    log.info("后处理完成: %s → %s (%s, 目标=%s)", src.name, out.name, action, target)
     return out, action
 
 
@@ -116,7 +211,8 @@ def _resolve_platform(task: DownloadTask, info: dict) -> str:
 
 
 def ingest(
-    raw: RawDownload, task: DownloadTask, session, settings: Settings
+    raw: RawDownload, task: DownloadTask, session, settings: Settings,
+    eff: EffectiveOptions | None = None, cancel: threading.Event | None = None,
 ) -> tuple[Video, bool]:
     """下载结果统一入库。若平台+视频 ID 已存在则直接返回已有条目（返回 created=False）。"""
     info = raw.info or {}
@@ -130,7 +226,9 @@ def ingest(
         log.info("库中已存在 [%s] %s，跳过重复入库", platform, source_id)
         return existing, False
 
-    final, action = ensure_mp4(raw.media_path, raw.temp_dir / "out")
+    codec = eff.codec if eff else settings.library.video_codec
+    final, action = ensure_mp4(raw.media_path, raw.temp_dir / "out", codec,
+                               settings.library.hw_encoder, cancel=cancel)
     probe = run_ffprobe(final)
     v = _first_stream(probe, "video") or {}
     a = _first_stream(probe, "audio") or {}

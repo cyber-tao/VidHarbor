@@ -1,4 +1,4 @@
-"""vidlib 应用入口：uvicorn app.main:app"""
+"""VidHarbor 应用入口：uvicorn app.main:app"""
 from __future__ import annotations
 
 import asyncio
@@ -9,15 +9,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
-from .api import charts, events, stats, tasks, videos
+from .api import auth, charts, events, schedules, settings as settings_api, stats, tasks, videos
 from .config import ensure_dirs, get_settings
 from .db import init_db
 from .downloader.engine import TaskQueue, evil0ctal_health
 from .events import bus
 from .logging_setup import setup_logging
+from .scheduler import start_scheduler
 
 setup_logging()
-log = logging.getLogger("vidlib.main")
+log = logging.getLogger("vidharbor.main")
 settings = get_settings()
 
 
@@ -28,9 +29,13 @@ def _startup_checks() -> None:
     else:
         log.info("ffmpeg/ffprobe 就绪")
     if settings.cookies_path:
-        log.info("已启用 cookies 文件: %s", settings.cookies_path)
-    else:
-        log.info("未配置 cookies.txt —— YouTube 高清 / B站 1080P+ / TikTok 榜单可能受限（见 README）")
+        log.info("已启用全局 cookies 文件: %s", settings.cookies_path)
+    platform_cookies = [p for p in ("bilibili", "youtube", "tiktok", "douyin")
+                        if settings.cookie_file_for(p)]
+    if platform_cookies:
+        log.info("已配置平台 cookies: %s（设置页可管理）", ", ".join(platform_cookies))
+    elif not settings.cookies_path:
+        log.info("未配置 cookies —— YouTube 高清 / B站 1080P+ / TikTok 榜单可能受限（设置页可扫码/导入）")
     if settings.evil0ctal.enabled:
         if evil0ctal_health(settings):
             log.info("Evil0ctal 抖音兜底服务在线: %s", settings.evil0ctal.base_url)
@@ -51,23 +56,33 @@ async def lifespan(app: FastAPI):
     queue = TaskQueue(settings)
     app.state.queue = queue
     queue.start()
+    from .downloader.postprocess import set_transcode_limit
+
+    set_transcode_limit(settings.library.transcode_concurrency)
+    scheduler = start_scheduler(queue)
+    app.state.scheduler = scheduler
     log.info(
-        "vidlib 就绪: 视频库=%s 数据库=%s",
+        "VidHarbor 就绪: 视频库=%s 数据库=%s",
         settings.library_root, settings.db_path,
     )
     yield
+    try:
+        scheduler.shutdown(wait=False)
+    except Exception:  # noqa: BLE001
+        pass
     queue.stop()
 
 
-app = FastAPI(title="vidlib", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="VidHarbor", version="0.2.0", lifespan=lifespan)
 
-for r in (tasks.router, videos.router, charts.router, stats.router, events.router):
+for r in (tasks.router, videos.router, charts.router, stats.router, events.router,
+          settings_api.router, auth.router, schedules.router):
     app.include_router(r)
 
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.1.0"}
+    return {"ok": True, "version": "0.2.0"}
 
 
 # 前端静态托管（构建产物存在时）；SPA 路由回退到 index.html

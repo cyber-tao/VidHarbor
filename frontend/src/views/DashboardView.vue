@@ -4,16 +4,20 @@ import { useMessage } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import { api } from '../api.js'
 import { useEvents } from '../stores.js'
+import { extractUrls } from '../urls.js'
 import { fmtCount, fmtSize, platformColor, platformLabel } from '../format.js'
 import ChartBox from '../components/ChartBox.vue'
 import PlatformTag from '../components/PlatformTag.vue'
+import DownloadOptionsDialog from '../components/DownloadOptionsDialog.vue'
 
 const message = useMessage()
 const router = useRouter()
 const events = useEvents()
 const stats = ref(null)
 const urlsText = ref('')
-const adding = ref(false)
+const pendingUrls = ref([])
+const showOptions = ref(false)
+const codecText = ref('统一 MP4')
 
 async function load() {
   try {
@@ -22,30 +26,32 @@ async function load() {
     message.error('统计加载失败: ' + e.message)
   }
 }
-onMounted(load)
+onMounted(async () => {
+  load()
+  try {
+    const res = await api.getSettings()
+    const c = res.settings.library.video_codec === 'h264' ? 'H.264' : 'H.265'
+    codecText.value = `统一 MP4 (${c}/AAC)`
+  } catch { /* 默认文案 */ }
+})
 watch(() => events.statsVersion, load)
 
-async function quickAdd() {
-  const urls = urlsText.value.split('\n').map((s) => s.trim()).filter(Boolean)
+function quickAdd() {
+  const urls = extractUrls(urlsText.value)
   if (!urls.length) return
-  adding.value = true
-  try {
-    const res = await api.createTasks(urls)
-    message.success(`已创建 ${res.tasks.length} 个下载任务`)
-    urlsText.value = ''
-    router.push('/tasks')
-  } catch (e) {
-    message.error(e.message)
-  } finally {
-    adding.value = false
-  }
+  pendingUrls.value = urls
+  showOptions.value = true
+}
+function onQuickDone() {
+  urlsText.value = ''
+  router.push('/tasks')
 }
 
 const cards = computed(() => {
   const v = stats.value?.videos
   return [
     { label: '视频总数', value: fmtCount(v?.total ?? 0), sub: `${v?.today ?? 0} 今日新增`, icon: 'M4 5h16v14H4z', tint: 'text-indigo-400' },
-    { label: '存储占用', value: fmtSize(v?.total_size ?? 0), sub: '统一 MP4 (H.264/AAC)', icon: 'M4 7h16v13H4zM8 7V4h8v3', tint: 'text-emerald-400' },
+    { label: '存储占用', value: fmtSize(v?.total_size ?? 0), sub: codecText.value, icon: 'M4 7h16v13H4zM8 7V4h8v3', tint: 'text-emerald-400' },
     { label: '进行中任务', value: String(events.activeCount), sub: `${stats.value?.tasks?.pending ?? 0} 排队`, icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', tint: 'text-amber-400' },
     { label: '平台覆盖', value: String(Object.keys(v?.by_platform ?? {}).length || 0), sub: 'YouTube·B站·TikTok·抖音', icon: 'M5 12a7 7 0 1014 0 7 7 0 00-14 0zM12 5V3M12 21v-2', tint: 'text-fuchsia-400' },
   ]
@@ -129,11 +135,11 @@ const statusColor = {
       <!-- 快速下载 -->
       <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 lg:col-span-2">
         <div class="mb-2 text-sm font-medium text-zinc-300">快速下载</div>
-        <textarea v-model="urlsText" rows="4" placeholder="粘贴视频链接，每行一个&#10;支持 YouTube / B站 / TikTok / 抖音"
+        <textarea v-model="urlsText" rows="4" placeholder="粘贴视频链接或 App 分享文案，自动提取链接&#10;支持 YouTube / B站 / TikTok / 抖音"
           class="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-950 p-3 font-mono text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
-        <button :disabled="adding || !urlsText.trim()" @click="quickAdd"
+        <button :disabled="!urlsText.trim()" @click="quickAdd"
           class="mt-2 w-full rounded-lg bg-indigo-500 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-40">
-          {{ adding ? '提交中…' : '添加到下载队列' }}
+          添加到下载队列
         </button>
       </div>
       <!-- 最近任务 -->
@@ -154,5 +160,6 @@ const statusColor = {
         </div>
       </div>
     </div>
+    <DownloadOptionsDialog v-model:show="showOptions" :urls="pendingUrls" title="下载选项" @done="onQuickDone" />
   </div>
 </template>

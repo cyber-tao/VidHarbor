@@ -39,7 +39,33 @@ def get_sessionmaker() -> sessionmaker:
     return SessionLocal
 
 
+def _migrate(engine: Engine) -> None:
+    """轻量幂等迁移：补充旧库缺失的列；charts_cache 结构变更则整体重建（纯缓存，可丢弃）。"""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    tables = set(insp.get_table_names())
+
+    if "charts_cache" in tables:
+        cols = {c["name"] for c in insp.get_columns("charts_cache")}
+        if "period" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("DROP TABLE charts_cache"))
+
+    if "download_tasks" in tables:
+        cols = {c["name"] for c in insp.get_columns("download_tasks")}
+        with engine.begin() as conn:
+            if "options" not in cols:
+                conn.execute(text("ALTER TABLE download_tasks ADD COLUMN options TEXT DEFAULT ''"))
+            if "schedule_id" not in cols:
+                conn.execute(text(
+                    "ALTER TABLE download_tasks ADD COLUMN schedule_id INTEGER"
+                ))
+
+
 def init_db() -> None:
     from .models import Base
 
-    Base.metadata.create_all(get_engine())
+    engine = get_engine()
+    _migrate(engine)
+    Base.metadata.create_all(engine)

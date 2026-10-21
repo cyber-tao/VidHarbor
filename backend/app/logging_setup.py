@@ -27,7 +27,7 @@ class BusLogHandler(logging.Handler):
 
 
 def setup_logging(level: int = logging.INFO) -> None:
-    root = logging.getLogger("vidlib")
+    root = logging.getLogger("vidharbor")
     if any(isinstance(h, BusLogHandler) for h in root.handlers):
         return
     root.setLevel(logging.DEBUG)

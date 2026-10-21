@@ -1,4 +1,4 @@
-"""任务 API：创建（含批量）、列表、取消/删除、重试。"""
+"""任务 API：创建（含批量+下载选项）、列表、取消/删除、重试。"""
 from __future__ import annotations
 
 import logging
@@ -8,56 +8,69 @@ from pydantic import BaseModel, Field
 
 from ..db import get_sessionmaker
 from ..downloader.engine import detect_platform, task_snapshot
+from ..downloader.urlnorm import normalize_inputs
 from ..events import bus
 from ..models import DownloadTask
 
-log = logging.getLogger("vidlib.api.tasks")
+log = logging.getLogger("vidharbor.api.tasks")
 router = APIRouter()
+
+
+class TaskOptionsIn(BaseModel):
+    max_height: int | None = Field(default=None, ge=0, le=4320)
+    audio_langs: list[str] | None = None
+    sub_langs: list[str] | None = None
+    codec: str | None = None
 
 
 class CreateTasksReq(BaseModel):
     urls: list[str] = Field(default_factory=list)
+    options: TaskOptionsIn | None = None
 
 
 @router.post("/api/tasks")
 def create_tasks(req: CreateTasksReq, request: Request):
-    urls: list[str] = []
-    seen: set[str] = set()
-    for u in req.urls:
-        u = u.strip()
-        if u and u not in seen:
-            seen.add(u)
-            urls.append(u)
+    # 分享文案提取 URL + 短链展开（v.douyin.com / vm.tiktok.com 等）
+    urls: list[str] = normalize_inputs(req.urls)
     if not urls:
         raise HTTPException(status_code=400, detail="没有可下载的 URL")
     if len(urls) > 200:
         raise HTTPException(status_code=400, detail="单次最多 200 条 URL")
+
+    options_json = ""
+    if req.options is not None:
+        data = req.options.model_dump(exclude_none=True)
+        if data:
+            import json
+            options_json = json.dumps(data, ensure_ascii=False)
 
     sm = get_sessionmaker()
     queue = request.app.state.queue
     with sm() as session:
         tasks = []
         for u in urls:
-            t = DownloadTask(url=u[:1024], platform=detect_platform(u))
+            t = DownloadTask(url=u[:1024], platform=detect_platform(u), options=options_json)
             session.add(t)
             tasks.append(t)
         session.commit()
         for t in tasks:
-            queue.submit(t.id)
+            queue.submit(t.id, t.platform)
         snapshots = [task_snapshot(t) for t in tasks]
     log.info("创建 %d 个下载任务", len(snapshots))
     return {"tasks": snapshots}
 
 
 @router.get("/api/tasks")
-def list_tasks(limit: int = 200):
+def list_tasks(limit: int = 200, schedule_id: int = 0):
     if limit < 1 or limit > 1000:
         limit = 200
     sm = get_sessionmaker()
     with sm() as session:
+        query = session.query(DownloadTask)
+        if schedule_id:
+            query = query.filter(DownloadTask.schedule_id == schedule_id)
         rows = (
-            session.query(DownloadTask)
-            .order_by(DownloadTask.id.desc())
+            query.order_by(DownloadTask.id.desc())
             .limit(limit)
             .all()
         )
@@ -91,8 +104,9 @@ def retry_task(task_id: int, request: Request):
         old = session.get(DownloadTask, task_id)
         if old is None:
             raise HTTPException(status_code=404, detail="任务不存在")
-        t = DownloadTask(url=old.url, platform=old.platform)
+        t = DownloadTask(url=old.url, platform=old.platform,
+                         options=old.options, schedule_id=old.schedule_id)
         session.add(t)
         session.commit()
-    request.app.state.queue.submit(t.id)
+    request.app.state.queue.submit(t.id, t.platform)
     return {"task": task_snapshot(t)}

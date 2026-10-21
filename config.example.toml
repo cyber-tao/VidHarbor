@@ -1,25 +1,47 @@
-# vidlib 配置。复制为 config.toml 后修改；config.toml 被 git 忽略。
+# VidHarbor 配置。复制为 config.toml 后修改；config.toml 被 git 忽略。
+# 标注 [Web] 的字段也可在 Web 控制台「设置」页修改（保存到数据库，优先生效）。
 
 [library]
 # 视频库根目录（留空则使用 <项目>/library）
 root = ""
 # 文件命名模板，可用字段: platform uploader upload_date title id
 name_template = "{upload_date} - {title} [{id}]"
+# [Web] 入库目标编码：h265（默认，更省空间）/ h264（兼容最好）
+video_codec = "h265"
+# [Web] h265 转码编码器：auto = 硬件优先(NVENC/QSV/AMF/VideoToolbox)回退 libx265
+hw_encoder = "auto"
 
 [download]
 # 同时下载任务数
 concurrency = 2
-# 字幕语言（yt-dlp 正则语法），auto 字幕也会尝试
+# [Web] 字幕语言（yt-dlp 正则语法），auto 字幕也会尝试
 sub_langs = ["zh.*", "en.*"]
-# Netscape 格式 cookies.txt 路径。YouTube 高清(PO Token)/B站1080P+ 通常需要。
-# 导出方法见 README。
+# [Web] 最高分辨率（像素高度），0 = 不限
+max_height = 1080
+# [Web] 音轨语言偏好（按顺序），多音轨视频只下载一条首选音轨；空 = 原声/默认
+audio_langs = []
+# 全局兜底 cookies.txt（Netscape 格式）。平台专属 cookies 建议在「设置 → 登录管理」
+# 扫码/导入/上传（存于 data/cookies/{platform}.txt，优先生效）。
 cookies_file = ""
 
 [evil0ctal]
-# 抖音兜底引擎：本地部署的 Douyin_TikTok_Download_API 地址（见 README）
+# [Web] 抖音/TikTok 兜底引擎：本地部署的 Douyin_TikTok_Download_API v5 地址（见 README）。
+# yt-dlp 失败时自动切换；v5 需要 API key（控制台 /api-keys 创建，勾选 douyin:read + tiktok:read）
 enabled = true
-base_url = "http://127.0.0.1:8080"
+base_url = "http://127.0.0.1:8000"
+api_key = ""
+
+[youtube]
+# [Web] YouTube Data API v3 密钥（Google Cloud Console 免费创建）。
+# 配置后榜单优先走官方 API：真实热门榜 + 点赞数/发布时间；留空则走免登录通道。
+api_key = ""
+# [Web] 地区代码，影响热门榜内容（US / JP / TW / HK 等）
+region_code = "US"
 
 [server]
 host = "127.0.0.1"
 port = 8666
+
+[scheduler]
+# [Web] 定时任务时区
+timezone = "Asia/Shanghai"

@@ -3,28 +3,26 @@ import { onMounted, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import { api } from '../api.js'
 import { useEvents } from '../stores.js'
+import { extractUrls } from '../urls.js'
 import PlatformTag from '../components/PlatformTag.vue'
+import DownloadOptionsDialog from '../components/DownloadOptionsDialog.vue'
 
 const message = useMessage()
 const events = useEvents()
 const urlsText = ref('')
-const adding = ref(false)
+const pendingUrls = ref([])
+const showOptions = ref(false)
 
 onMounted(() => events.loadTasks())
 
-async function addTasks() {
-  const urls = urlsText.value.split('\n').map((s) => s.trim()).filter(Boolean)
+function addTasks() {
+  const urls = extractUrls(urlsText.value)
   if (!urls.length) return
-  adding.value = true
-  try {
-    const res = await api.createTasks(urls)
-    message.success(`已创建 ${res.tasks.length} 个下载任务`)
-    urlsText.value = ''
-  } catch (e) {
-    message.error(e.message)
-  } finally {
-    adding.value = false
-  }
+  pendingUrls.value = urls
+  showOptions.value = true
+}
+function onAddDone() {
+  urlsText.value = ''
 }
 
 async function cancelTask(t) {
@@ -53,10 +51,26 @@ const STAGE_TEXT = {
   downloading: '下载中', merging: '合并流', processing: '转码/入库', done: '完成',
 }
 
+function statusText(t) {
+  const base = STATUS[t.status]?.text ?? t.status
+  if (t.status !== 'running') return base
+  // 只拼接能补充信息的阶段：与状态文案相同（如 下载中·下载中）或
+  // 即将由状态体现的收尾阶段（done）都跳过
+  const stage = STAGE_TEXT[t.stage]
+  return stage && stage !== base && t.stage !== 'done' ? `${base} · ${stage}` : base
+}
+
 function progressColor(t) {
   if (t.status === 'completed') return '#34d399'
   if (t.status === 'failed') return '#f87171'
   return '#818cf8'
+}
+
+function optionBadge(t) {
+  const o = t.options
+  if (!o) return ''
+  const h = o.max_height ? `${o.max_height}p` : ''
+  return [h, o.codec].filter(Boolean).join(' · ')
 }
 </script>
 
@@ -68,11 +82,11 @@ function progressColor(t) {
     <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
       <div class="mb-2 text-sm font-medium text-zinc-300">批量添加</div>
       <div class="flex gap-3">
-        <textarea v-model="urlsText" rows="3" placeholder="粘贴视频链接，每行一个（支持批量粘贴）"
+        <textarea v-model="urlsText" rows="3" placeholder="粘贴视频链接或 App 分享文案（自动提取链接，支持批量）"
           class="flex-1 resize-none rounded-lg border border-zinc-700 bg-zinc-950 p-3 font-mono text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
-        <button :disabled="adding || !urlsText.trim()" @click="addTasks"
+        <button :disabled="!urlsText.trim()" @click="addTasks"
           class="self-end rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-40">
-          {{ adding ? '提交中…' : '添加任务' }}
+          添加任务
         </button>
       </div>
     </div>
@@ -90,9 +104,12 @@ function progressColor(t) {
         <span class="rounded px-1.5 py-0.5 font-mono text-[10px] text-zinc-500">#{{ t.id }}</span>
         <PlatformTag :platform="t.platform" />
         <span v-if="t.engine" class="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-400">{{ t.engine }}</span>
+        <span v-if="optionBadge(t)" class="rounded-full border border-zinc-700 bg-zinc-800/60 px-2 py-0.5 font-mono text-[10px] text-zinc-400">{{ optionBadge(t) }}</span>
+        <router-link v-if="t.schedule_id" :to="`/schedules?focus=${t.schedule_id}`"
+          class="rounded-full border border-fuchsia-500/40 bg-fuchsia-500/10 px-2 py-0.5 text-[10px] text-fuchsia-300 hover:bg-fuchsia-500/20"
+          title="来自定时任务">⏱ #{{ t.schedule_id }}</router-link>
         <span :class="['rounded px-2 py-0.5 text-[11px] font-medium', STATUS[t.status]?.cls]">
-          {{ STATUS[t.status]?.text ?? t.status }}
-          <template v-if="t.status === 'running' && t.stage && STAGE_TEXT[t.stage]"> · {{ STAGE_TEXT[t.stage] }}</template>
+          {{ statusText(t) }}
         </span>
         <span class="min-w-0 flex-1 truncate font-mono text-[11px] text-zinc-500">{{ t.url }}</span>
         <div class="flex items-center gap-1.5">
@@ -127,5 +144,6 @@ function progressColor(t) {
         {{ t.error }}
       </div>
     </div>
+    <DownloadOptionsDialog v-model:show="showOptions" :urls="pendingUrls" title="下载选项" @done="onAddDone" />
   </div>
 </template>

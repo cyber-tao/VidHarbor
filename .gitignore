@@ -1,22 +1,49 @@
-# Python
+# ===== Python =====
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
 .venv/
+venv/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
-# Node
+# ===== Node / frontend =====
 node_modules/
 frontend/dist/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# Runtime data
+# ===== Runtime data (never commit) =====
+# SQLite DB, per-platform cookies, server logs
 data/
+# Downloaded videos, thumbnails, transcode temp
 library/
+# Local config with real credentials — copy from config.example.toml
 config.toml
-
-# Evil0ctal fallback service (cloned locally)
+# Local clone target of the Evil0ctal fallback service
 tools/
-
-# Misc
-.vscode/
 *.log
+
+# ===== Download / ffmpeg leftovers =====
+*.part
+*.ytdl
+*.tmp
+
+# ===== Dev scratch & local tooling =====
+# API research scratch: test scripts, sample videos, JSON dumps
+.video_agent/
+# Local agent workspace (plans, session data)
+.zcode/
+.vscode/
+.idea/
+
+# ===== OS =====
 .DS_Store
+Thumbs.db
+desktop.ini
