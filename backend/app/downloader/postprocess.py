@@ -15,7 +15,7 @@ from pathlib import Path
 from ..config import Settings
 from ..models import DownloadTask, Subtitle, Tag, Video
 from ..naming import build_filename, build_relpath
-from .options import EffectiveOptions
+from .options import EffectiveOptions, equivalent_source_ids
 from .ytdlp import DownloadCancelled, RawDownload
 
 log = logging.getLogger("vidharbor.postprocess")
@@ -221,9 +221,11 @@ def ingest(
     if not source_id:
         raise ValueError("视频缺少 id，无法入库")
 
-    existing = session.query(Video).filter_by(platform=platform, source_id=source_id).first()
+    same_video = (Video.platform == platform) & Video.source_id.in_(
+        equivalent_source_ids(platform, source_id))
+    existing = session.query(Video).filter(same_video).first()
     if existing is not None:
-        log.info("库中已存在 [%s] %s，跳过重复入库", platform, source_id)
+        log.info("库中已存在 [%s] %s，跳过重复入库", platform, existing.source_id)
         return existing, False
 
     codec = eff.codec if eff else settings.library.video_codec
@@ -328,8 +330,7 @@ def ingest(
         except OSError:
             pass
         # 并发下载同视频时唯一约束冲突：此时库中已有同 ID 条目，按"已存在"收敛
-        winner = session.query(Video).filter_by(
-            platform=platform, source_id=source_id).first()
+        winner = session.query(Video).filter(same_video).first()
         if winner is not None:
             log.info("入库提交失败但库中已有 [%s] %s，关联现有条目", platform, source_id)
             return winner, False

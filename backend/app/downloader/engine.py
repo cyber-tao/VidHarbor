@@ -14,7 +14,7 @@ from ..db import get_sessionmaker
 from ..events import bus
 from ..models import DownloadTask, Video, iso_utc
 from .evil0ctal import Evil0ctalClient, evil0ctal_download
-from .options import parse_options_json, parse_source_id, resolve_options
+from .options import parse_options_json, resolve_options, source_id_candidates
 from .ytdlp import DownloadCancelled, ytdlp_download
 
 log = logging.getLogger("vidharbor.engine")
@@ -38,9 +38,9 @@ def detect_platform(url: str) -> str:
 
 
 def dedup_key(platform: str, url: str) -> str:
-    """同一视频的去重键：URL 能解析出视频 id 时用 platform:id（不同写法的链接视为同一视频），否则用 URL。"""
-    sid = parse_source_id(platform, url)
-    return f"{platform}:{sid}" if sid else url[:1024]
+    """同一视频的去重键：URL 能解析出视频 id 时用 platform:规范 id（不同写法的链接视为同一视频），否则用 URL。"""
+    candidates = source_id_candidates(platform, url)
+    return f"{platform}:{candidates[0]}" if candidates else url[:1024]
 
 
 def active_task_keys(session) -> set[str]:
@@ -270,11 +270,11 @@ class TaskQueue:
             bus.publish("task", task_snapshot(task))
             log.info("任务 #%d 开始: %s", task_id, task.url)
 
-            # 下载前查库去重：URL 能解析出 source_id 且库中已有 → 直接完成
-            sid = parse_source_id(task.platform, task.url)
-            if sid:
-                existing = session.query(Video).filter_by(
-                    platform=task.platform, source_id=sid
+            # 下载前查库去重：URL 能解析出视频 id 且库中已有（含等价 id）→ 直接完成
+            candidates = source_id_candidates(task.platform, task.url)
+            if candidates:
+                existing = session.query(Video).filter(
+                    Video.platform == task.platform, Video.source_id.in_(candidates)
                 ).first()
                 if existing is not None:
                     task.status = "completed"
@@ -284,7 +284,8 @@ class TaskQueue:
                     task.error = "已在库中，未重复下载"
                     session.commit()
                     bus.publish("task", task_snapshot(task))
-                    log.info("任务 #%d 跳过: [%s] %s 已在库中", task_id, task.platform, sid)
+                    log.info("任务 #%d 跳过: [%s] %s 已在库中", task_id, task.platform,
+                             existing.source_id)
                     return
 
             eff = resolve_options(settings, parse_options_json(task.options))

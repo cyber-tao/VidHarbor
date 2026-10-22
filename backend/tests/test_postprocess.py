@@ -86,3 +86,33 @@ class TestIngestRecovery:
             assert video.source_id == "sid-dup"
         # 不留孤儿文件：库目录中的产物已被回收
         assert not (settings.videos_dir / "bilibili" / "UP").exists()
+
+    def test_single_part_p1_id_links_existing_entry(self, monkeypatch, tmp_path):
+        """同一单 P 视频先以 BVxxx 入库，再经 ?p=1 链接下载得到 BVxxx_p1：关联已有条目，不重复入库。"""
+        from app.config import get_settings
+        from app.db import get_sessionmaker
+        from app.downloader import postprocess as pp
+        from app.downloader.ytdlp import RawDownload
+        from app.models import DownloadTask, Video
+
+        def must_not_postprocess(*a, **k):
+            raise AssertionError("已在库中的视频不应再做后处理")
+
+        monkeypatch.setattr(pp, "ensure_mp4", must_not_postprocess)
+        sm = get_sessionmaker()
+        with sm() as s:
+            existing = Video(platform="bilibili", source_id="BV1EQUIV0001")
+            s.add(existing)
+            s.commit()
+            vid = existing.id
+        raw = RawDownload(ok=True, info={"id": "BV1EQUIV0001_p1", "title": "T"},
+                          media_path=tmp_path / "x.mp4", temp_dir=tmp_path)
+        task = DownloadTask(url="https://www.bilibili.com/video/BV1EQUIV0001?p=1", platform="bilibili")
+        try:
+            with sm() as session:
+                video, created = pp.ingest(raw, task, session, get_settings())
+                assert created is False and video.id == vid
+        finally:
+            with sm() as s:
+                s.delete(s.get(Video, vid))
+                s.commit()

@@ -4,7 +4,8 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
+from urllib.parse import parse_qs, urlsplit
 
 from pydantic import BaseModel, Field
 
@@ -13,12 +14,17 @@ if TYPE_CHECKING:
 
 
 class DownloadOptions(BaseModel):
-    """任务级下载选项；None 字段表示沿用全局设置。"""
+    """任务级下载选项（手动提交与定时任务共用）；None 字段表示沿用全局设置。"""
 
     max_height: int | None = Field(default=None, ge=0, le=4320)
     audio_langs: list[str] | None = None
     sub_langs: list[str] | None = None
-    codec: str | None = None  # "h264" | "h265"
+    codec: Literal["h264", "h265"] | None = None
+
+    def to_json(self) -> str:
+        """持久化到任务/定时任务：只存显式指定的项，空串表示全部沿用全局设置。"""
+        data = self.model_dump(exclude_none=True)
+        return json.dumps(data, ensure_ascii=False) if data else ""
 
 
 @dataclass
@@ -131,3 +137,35 @@ def parse_source_id(platform: str, url: str) -> str:
         return str(parser(url or "")).strip()
     except Exception:  # noqa: BLE001
         return ""
+
+
+def _bilibili_part(url: str) -> int:
+    try:
+        return int(parse_qs(urlsplit(url).query).get("p", ["1"])[0])
+    except ValueError:
+        return 1
+
+
+def equivalent_source_ids(platform: str, source_id: str) -> list[str]:
+    """同一视频在库里可能存成的 source_id（入库与下载前查重共用）。
+
+    B站：yt-dlp 对带 ?p=N 的链接与多 P 合集给出 BVxxx_pN，单 P 视频不带 p 时给 BVxxx，
+    因此单 P 视频的 BVxxx 与 BVxxx_p1 是同一个视频。
+    """
+    if platform == "bilibili" and source_id.startswith("BV"):
+        base, _, part = source_id.partition("_p")
+        if not part:
+            return [source_id, f"{source_id}_p1"]
+        if part == "1":
+            return [source_id, base]
+    return [source_id]
+
+
+def source_id_candidates(platform: str, url: str) -> list[str]:
+    """URL 在库里可能对应的 source_id（首项作规范去重键）；无法解析返回空列表。"""
+    sid = parse_source_id(platform, url)
+    if not sid:
+        return []
+    if platform == "bilibili" and sid.startswith("BV") and _bilibili_part(url) > 1:
+        sid = f"{sid}_p{_bilibili_part(url)}"
+    return equivalent_source_ids(platform, sid)

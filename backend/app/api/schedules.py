@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from ..charts import provider_for
 from ..config import PLATFORMS
 from ..db import get_sessionmaker
+from ..downloader.options import DownloadOptions
 from ..models import Schedule
 from ..scheduler import (
     claim_run,
@@ -43,7 +44,7 @@ class ScheduleIn(BaseModel):
     weekdays: list[int] = Field(default_factory=list)
     cron: str = ""
     selections: list[SelectionIn] = Field(min_length=1)
-    options: dict = Field(default_factory=dict)
+    options: DownloadOptions = Field(default_factory=DownloadOptions)
 
 
 def _validate(req: ScheduleIn) -> None:
@@ -88,7 +89,7 @@ def _apply(row: Schedule, req: ScheduleIn) -> None:
     row.weekdays = json.dumps(sorted(set(req.weekdays)))
     row.cron = req.cron
     row.selections = json.dumps([s.model_dump() for s in req.selections], ensure_ascii=False)
-    row.options = json.dumps(req.options or {}, ensure_ascii=False)
+    row.options = req.options.to_json()
 
 
 def _snap_with_next(request: Request, row: Schedule) -> dict:

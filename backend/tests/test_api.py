@@ -43,6 +43,11 @@ class TestTaskValidation:
     def test_task_404(self, client):
         assert client.post("/api/tasks/99999/retry").status_code == 404
 
+    def test_invalid_options_rejected(self, client):
+        r = client.post("/api/tasks", json={
+            "urls": ["https://www.youtube.com/watch?v=badoptions1"], "options": {"codec": "vp9"}})
+        assert r.status_code == 422
+
     def test_create_with_options(self, client, monkeypatch):
         """创建任务带下载选项；随后取消清理（不真正入队，避免测试发起网络下载）。"""
         monkeypatch.setattr(client.app.state.queue, "submit", lambda *a, **k: None)
@@ -222,6 +227,16 @@ class TestScheduleState:
             assert r.json()["schedule"]["next_run_at"] is None  # 停用任务不进调度器
         finally:
             client.delete(f"/api/schedules/{sid}")
+
+    def test_options_validated_and_stored(self, client):
+        bad = dict(self.PAYLOAD, options={"codec": "vp9"})
+        assert client.post("/api/schedules", json=bad).status_code == 422
+        r = client.post("/api/schedules", json=dict(self.PAYLOAD, options={"max_height": 720}))
+        assert r.status_code == 200
+        try:
+            assert r.json()["schedule"]["options"] == {"max_height": 720}
+        finally:
+            client.delete(f"/api/schedules/{r.json()['schedule']['id']}")
 
     def test_douyin_hot_list_rejected(self, client):
         hot = dict(self.PAYLOAD, selections=[{"platform": "douyin", "category": "hot", "limit": 5}])
@@ -516,6 +531,47 @@ class TestScheduleConcurrency:
 
 class TestScheduleDedup:
     """定时任务两轮连跑：上一轮还在队列中的 URL 第二轮跳过，不重复下载。"""
+
+    def test_run_skips_video_stored_under_equivalent_id(self, client, monkeypatch):
+        """榜单给的是不带 p 的链接，库里存的是 yt-dlp 给的 BVxxx_p1：应计为跳过而不是再下一遍。"""
+        import json as _json
+
+        from app import scheduler as sched
+        from app.charts.base import TrendingItem
+        from app.db import get_sessionmaker
+        from app.models import DownloadTask, Schedule, Video
+
+        class FakeProvider:
+            def normalize(self, category, period):
+                return category or "hot", period
+
+            def is_downloadable(self, category):
+                return True
+
+            def fetch(self, category, period):
+                return [TrendingItem(source_id="BV1EQSCHED01",
+                                     url="https://www.bilibili.com/video/BV1EQSCHED01")]
+
+        monkeypatch.setattr(sched, "provider_for", lambda p: FakeProvider())
+        monkeypatch.setattr(client.app.state.queue, "submit", lambda *a, **k: None)
+        sm = get_sessionmaker()
+        with sm() as s:
+            video = Video(platform="bilibili", source_id="BV1EQSCHED01_p1")
+            row = Schedule(name="等价 id", mode="daily", selections=_json.dumps(
+                [{"platform": "bilibili", "category": "hot", "period": "", "limit": 5}]))
+            s.add_all([video, row])
+            s.commit()
+            vid, sid = video.id, row.id
+        try:
+            result = sched.run_schedule(sid, client.app.state.queue)
+            assert (result["created"], result["skipped"]) == (0, 1)
+        finally:
+            with sm() as s:
+                s.query(DownloadTask).filter(DownloadTask.schedule_id == sid).delete(
+                    synchronize_session=False)
+                s.delete(s.get(Schedule, sid))
+                s.delete(s.get(Video, vid))
+                s.commit()
 
     def test_run_skips_urls_already_queued(self, client, monkeypatch):
         import json as _json

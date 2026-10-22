@@ -1,11 +1,16 @@
 """下载选项：格式选择器构造 + URL → source_id 解析。"""
+import pytest
+from pydantic import ValidationError
+
 from app.config import Settings
 from app.downloader.options import (
     DownloadOptions,
     build_format_selector,
+    equivalent_source_ids,
     parse_options_json,
     parse_source_id,
     resolve_options,
+    source_id_candidates,
 )
 
 
@@ -83,3 +88,38 @@ class TestParseSourceId:
     def test_unparseable(self):
         assert parse_source_id("bilibili", "https://b23.tv/abc123") == ""
         assert parse_source_id("other", "https://example.com/x") == ""
+
+
+class TestSourceIdEquivalence:
+    """B站：yt-dlp 对 ?p=N 链接与多 P 合集给出 BVxxx_pN，单 P 视频不带 p 时给 BVxxx（2026-10 实测）。"""
+
+    BASE = "https://www.bilibili.com/video/BV1bK411W797"
+
+    def test_candidates(self):
+        assert source_id_candidates("bilibili", self.BASE) == ["BV1bK411W797", "BV1bK411W797_p1"]
+        assert source_id_candidates("bilibili", self.BASE + "?p=1") == ["BV1bK411W797", "BV1bK411W797_p1"]
+        assert source_id_candidates("bilibili", self.BASE + "/?p=3&spm_id_from=x") == ["BV1bK411W797_p3"]
+        assert source_id_candidates("youtube", "https://youtu.be/dQw4w9WgXcQ") == ["dQw4w9WgXcQ"]
+        assert source_id_candidates("bilibili", "https://b23.tv/abc123") == []
+
+    def test_equivalent_ids(self):
+        assert equivalent_source_ids("bilibili", "BV1bK411W797") == ["BV1bK411W797", "BV1bK411W797_p1"]
+        assert equivalent_source_ids("bilibili", "BV1bK411W797_p1") == ["BV1bK411W797_p1", "BV1bK411W797"]
+        assert equivalent_source_ids("bilibili", "BV1bK411W797_p2") == ["BV1bK411W797_p2"]
+        assert equivalent_source_ids("youtube", "dQw4w9WgXcQ") == ["dQw4w9WgXcQ"]
+
+    def test_dedup_key_separates_anthology_parts(self):
+        from app.downloader.engine import dedup_key
+
+        assert dedup_key("bilibili", self.BASE) == dedup_key("bilibili", self.BASE + "?p=1")
+        assert dedup_key("bilibili", self.BASE + "?p=2") != dedup_key("bilibili", self.BASE + "?p=1")
+
+
+class TestDownloadOptionsModel:
+    def test_codec_validated(self):
+        with pytest.raises(ValidationError):
+            DownloadOptions(codec="vp9")
+
+    def test_to_json_keeps_only_explicit_fields(self):
+        assert DownloadOptions().to_json() == ""
+        assert DownloadOptions(codec="h264", max_height=720).to_json() == '{"max_height": 720, "codec": "h264"}'

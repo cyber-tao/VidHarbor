@@ -17,7 +17,7 @@ from .charts import provider_for
 from .config import get_settings, local_timezone
 from .db import get_sessionmaker
 from .downloader.engine import TaskQueue, dedup_key, detect_platform, task_creation
-from .downloader.options import parse_source_id
+from .downloader.options import source_id_candidates
 from .events import bus
 from .models import DownloadTask, Schedule, Video, iso_utc, utcnow
 
@@ -172,9 +172,10 @@ def _enqueue_items(session, row: Schedule, items, limit: int,
             url = item.url[:1024]
             platform = detect_platform(url)
             key = dedup_key(platform, url)
-            sid = parse_source_id(platform, url) or item.source_id
-            in_library = bool(sid) and session.query(Video.id).filter_by(
-                platform=platform, source_id=str(sid)).first() is not None
+            candidates = source_id_candidates(platform, url) or (
+                [str(item.source_id)] if item.source_id else [])
+            in_library = bool(candidates) and session.query(Video.id).filter(
+                Video.platform == platform, Video.source_id.in_(candidates)).first() is not None
             if key in active or in_library:
                 skipped += 1
                 continue

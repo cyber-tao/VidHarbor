@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from ..db import get_sessionmaker
 from ..downloader.engine import dedup_key, detect_platform, task_creation, task_snapshot
+from ..downloader.options import DownloadOptions
 from ..downloader.urlnorm import normalize_inputs
 from ..events import bus
 from ..models import DownloadTask
@@ -16,16 +17,9 @@ log = logging.getLogger("vidharbor.api.tasks")
 router = APIRouter()
 
 
-class TaskOptionsIn(BaseModel):
-    max_height: int | None = Field(default=None, ge=0, le=4320)
-    audio_langs: list[str] | None = None
-    sub_langs: list[str] | None = None
-    codec: str | None = None
-
-
 class CreateTasksReq(BaseModel):
     urls: list[str] = Field(default_factory=list)
-    options: TaskOptionsIn | None = None
+    options: DownloadOptions | None = None
 
 
 @router.post("/api/tasks")
@@ -37,12 +31,7 @@ def create_tasks(req: CreateTasksReq, request: Request):
     if len(urls) > 200:
         raise HTTPException(status_code=400, detail="单次最多 200 条 URL")
 
-    options_json = ""
-    if req.options is not None:
-        data = req.options.model_dump(exclude_none=True)
-        if data:
-            import json
-            options_json = json.dumps(data, ensure_ascii=False)
+    options_json = req.options.to_json() if req.options is not None else ""
 
     sm = get_sessionmaker()
     queue = request.app.state.queue
