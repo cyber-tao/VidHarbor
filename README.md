@@ -54,7 +54,7 @@ Runs on **Windows / Linux / macOS** — bare metal or **Docker** (x86-64 / ARM64
   trend, recent tasks, quick paste-to-download (with quality / subtitle / audio-track options)
 - **Trending charts (category × period)** — Bilibili (site-wide + 8 categories, composite /
   3-day / weekly + must-watch lists), YouTube (today / week / month × 6 categories + keyword
-  search), TikTok (hashtags), Douyin (hot / seeds / entertainment / society sub-charts);
+  search), TikTok (hashtags), Douyin (hot search, real-time + keyword search);
   multi-select cards → **batch download**
 - **Tasks page** — live progress bars (speed / ETA / stage: download → merge → transcode →
   done), failure reasons, option badges, cancel / retry / delete; duplicate URLs complete
@@ -203,7 +203,7 @@ cd backend && uv run uvicorn app.main:app --reload
 cd frontend && npm run dev
 ```
 
-Run tests — 136 pytest cases covering naming sanitization, subtitle parsing, chart period
+Run tests — 157 pytest cases covering naming sanitization, subtitle parsing, chart period
 parsing, format selectors, option resolution, encoder detection, cookie import and API
 smoke tests:
 
@@ -335,7 +335,7 @@ vidharbor/
 │   │   │                   # encoders, postprocess, urlnorm
 │   │   ├── scheduler.py    # APScheduler-driven scheduled downloads
 │   │   └── …               # config, db, models, events, logging, naming
-│   ├── tests/              # 136 pytest cases
+│   ├── tests/              # 157 pytest cases
 │   └── run.py              # cross-platform entry point
 ├── frontend/               # Vue 3 + Vite + Tailwind + Naive UI + ECharts + Pinia
 ├── config.example.toml     # copy to config.toml (git-ignored)

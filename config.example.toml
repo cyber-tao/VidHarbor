@@ -10,10 +10,14 @@ name_template = "{upload_date} - {title} [{id}]"
 video_codec = "h265"
 # [Web] h265 转码编码器：auto = 硬件优先(NVENC/QSV/AMF/VideoToolbox)回退 libx265
 hw_encoder = "auto"
+# [Web] 全局同时转码任务数（超出排队；remux 不占槽位）
+transcode_concurrency = 1
 
 [download]
-# 同时下载任务数
+# 同时下载任务数（保存后即时生效）
 concurrency = 2
+# 同一平台同时下载的任务数上限（防风控/限速）
+per_platform_concurrency = 2
 # [Web] 字幕语言（yt-dlp 正则语法），auto 字幕也会尝试
 sub_langs = ["^zh(-CN|-Hans|-Hant|-TW|-HK)?$", "^en(-US|-GB)?$"]
 # [Web] 最高分辨率（像素高度），0 = 不限

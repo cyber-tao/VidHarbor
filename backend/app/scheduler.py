@@ -7,14 +7,13 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone as dt_timezone
-from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from .charts import provider_for
-from .config import get_settings
+from .config import get_settings, local_timezone
 from .db import get_sessionmaker
 from .downloader.engine import TaskQueue, active_task_urls, detect_platform
 from .downloader.options import parse_source_id
@@ -26,17 +25,8 @@ log = logging.getLogger("vidharbor.scheduler")
 WEEKDAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
 
-def _tz() -> ZoneInfo:
-    name = get_settings().scheduler.timezone or "Asia/Shanghai"
-    try:
-        return ZoneInfo(name)
-    except Exception:  # noqa: BLE001
-        log.warning("无效时区 %s，回退 Asia/Shanghai", name)
-        return ZoneInfo("Asia/Shanghai")
-
-
 def make_trigger(row: Schedule):
-    tz = _tz()
+    tz = local_timezone()
     if row.mode == "interval":
         return IntervalTrigger(minutes=max(1, row.interval_minutes or 60), timezone=tz)
     if row.mode == "cron":
@@ -131,7 +121,7 @@ def register_all(scheduler: AsyncIOScheduler, queue: TaskQueue) -> None:
 
 
 def start_scheduler(queue: TaskQueue) -> AsyncIOScheduler:
-    scheduler = AsyncIOScheduler(timezone=_tz())
+    scheduler = AsyncIOScheduler(timezone=local_timezone())
     scheduler.start()
     register_all(scheduler, queue)
     return scheduler

@@ -47,7 +47,7 @@ VidHarbor（影坞）下载 **YouTube / 哔哩哔哩 / TikTok / 抖音** 视频�
 ## ✨ 功能
 
 - **仪表盘**：视频总数、存储占用、今日新增、平台分布、近 14 天入库趋势、最近任务、快速粘贴下载（可选清晰度/字幕/音轨）
-- **热门榜单（分类 × 时间段）**：B站（全站+8 分区，综合/三日榜/周榜 + 每周必看/入站必刷）、YouTube（今日/本周/本月 × 6 分类 + 自定义关键词）、TikTok（热门标签 + 自定义标签）、抖音（热点/种草/娱乐/社会 4 个子榜，实时）；卡片多选 → **批量下载**（下载前可选清晰度/编码/字幕/音轨语言）
+- **热门榜单（分类 × 时间段）**：B站（全站+8 分区，综合/三日榜/周榜 + 每周必看/入站必刷）、YouTube（今日/本周/本月 × 6 分类 + 自定义关键词）、TikTok（热门标签 + 自定义标签）、抖音（热搜榜，实时 + 关键词搜索）；卡片多选 → **批量下载**（下载前可选清晰度/编码/字幕/音轨语言）
 - **任务页**：实时进度条（下载速度/剩余时间/阶段：下载→合并→转码→完成）、失败原因、选项徽标、取消/重试/删除；重复 URL 自动秒完成（已在库）
 - **视频库**：缩略图网格、平台筛选、全文搜索、**标签聚合筛选**（多选=同时满足，来自视频标签自动聚合）；详情页内置播放器 + **字幕轨选择**、**存储绝对路径一键复制**、技术信息、字幕查看、删除；标签可点击跳转筛选
 - **定时任务**：每天/每周/间隔/Cron 触发；一个任务可组合多个榜单选择（平台×分类×周期×TopN）；到点自动抓取入库，**库中已有的视频自动跳过**；支持立即运行、启停、上次结果统计
@@ -170,7 +170,7 @@ cd backend && uv run uvicorn app.main:app --reload
 cd frontend && npm run dev
 ```
 
-运行测试 —— 136 个 pytest 用例，覆盖命名清洗/字幕解析/榜单周期解析/格式选择器/选项
+运行测试 —— 157 个 pytest 用例，覆盖命名清洗/字幕解析/榜单周期解析/格式选择器/选项
 解析/编码器探测/cookies 导入/API 冒烟：
 
 ```bash
@@ -209,7 +209,7 @@ WantedBy=default.target
 | `library.name_template` | 命名模板，字段：`platform uploader upload_date title id` |
 | `library.video_codec` [Web] | 入库目标编码 `h265`(默认)/`h264` |
 | `library.hw_encoder` [Web] | HEVC 编码器 `auto`(硬件优先)/`libx265`/`hevc_nvenc` 等 |
-| `download.concurrency` | 同时下载任务数（默认 2，重启生效） |
+| `download.concurrency` | 同时下载任务数（默认 2，保存后即时生效） |
 | `download.max_height` [Web] | 最高分辨率（默认 1080，0=不限） |
 | `download.sub_langs` [Web] | 字幕语言（yt-dlp 正则） |
 | `download.audio_langs` [Web] | 音轨语言偏好（按顺序，空=原声） |
@@ -291,7 +291,7 @@ vidharbor/
 │   │   │                   # encoders / postprocess / urlnorm
 │   │   ├── scheduler.py    # APScheduler 定时下载
 │   │   └── …               # config / db / models / events / logging / naming
-│   ├── tests/              # 136 个 pytest 用例
+│   ├── tests/              # 157 个 pytest 用例
 │   └── run.py              # 跨平台启动入口
 ├── frontend/               # Vue 3 + Vite + Tailwind + Naive UI + ECharts + Pinia
 ├── config.example.toml     # 复制为 config.toml（git 忽略）

@@ -64,17 +64,6 @@ def _fmt_eta(sec) -> str:
     return f"{sec // 60:02d}:{sec % 60:02d}"
 
 
-# 优先 H.264 + mp4（多数情况仅 remux 即可），失败逐级放宽，最后交由后处理转码
-# 旧版静态选择器保留作为兜底；新逻辑见 options.build_format_selector
-FORMAT_SEL = (
-    "bv*[vcodec^=avc1][ext=mp4]+ba[ext=mp4]"
-    "/b[vcodec^=avc1][ext=mp4]"
-    "/bv*[ext=mp4]+ba[ext=mp4]"
-    "/bv*+ba"
-    "/b"
-)
-
-
 def ytdlp_download(
     url: str,
     settings: Settings,

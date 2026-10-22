@@ -310,3 +310,35 @@ class TestScheduleDedup:
             with sm() as s:
                 s.delete(s.get(Schedule, sid))
                 s.commit()
+
+
+class TestStatsLocalDayBoundary:
+    """“今日”按 scheduler.timezone 的本地日为界：本地 00:30 入库（= UTC 前一日 16:30）计入今日。"""
+
+    def test_early_local_morning_counts_as_today(self, client):
+        from datetime import datetime, timezone as tzmod
+        from zoneinfo import ZoneInfo
+
+        from app.db import get_sessionmaker
+        from app.models import Video
+
+        tz = ZoneInfo("Asia/Shanghai")  # 隔离库默认 scheduler.timezone
+        local_0030 = datetime.now(tz).replace(hour=0, minute=30, second=0, microsecond=0)
+        naive_utc = local_0030.astimezone(tzmod.utc).replace(tzinfo=None)
+
+        sm = get_sessionmaker()
+        with sm() as s:
+            v = Video(platform="other", source_id="tz-boundary-1", title="tz",
+                      created_at=naive_utc, updated_at=naive_utc)
+            s.add(v)
+            s.commit()
+            vid = v.id
+        try:
+            data = client.get("/api/stats").json()
+            assert data["videos"]["today"] >= 1
+            assert data["videos"]["last14"][-1]["date"] == datetime.now(tz).strftime("%Y-%m-%d")
+            assert data["videos"]["last14"][-1]["count"] >= 1
+        finally:
+            with sm() as s:
+                s.delete(s.get(Video, vid))
+                s.commit()

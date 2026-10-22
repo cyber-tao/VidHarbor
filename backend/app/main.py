@@ -106,6 +106,9 @@ _dist = settings.frontend_dist
 if _dist.exists():
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa(full_path: str):
+        if full_path.startswith("api/"):
+            # 未知 API 路径不能回退到 index.html：前端 fetch 会把 HTML 当 JSON 解析报错
+            raise HTTPException(status_code=404, detail=f"未知的 API 路径: /{full_path}")
         if full_path:
             candidate = (_dist / full_path).resolve()
             try:

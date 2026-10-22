@@ -170,6 +170,13 @@ async def run_schedule_now(schedule_id: int, request: Request):
         name = row.name
     queue = request.app.state.queue
     loop = asyncio.get_running_loop()
-    loop.run_in_executor(None, run_schedule, schedule_id, queue)
+    future = loop.run_in_executor(None, run_schedule, schedule_id, queue)
+
+    def _log_failure(f) -> None:
+        exc = f.exception()
+        if exc is not None:
+            log.error("定时任务 #%d「%s」后台执行异常: %s", schedule_id, name, exc)
+
+    future.add_done_callback(_log_failure)
     log.info("手动触发定时任务「%s」(#%d)", name, schedule_id)
     return {"ok": True, "message": f"「{name}」已开始后台运行，结果见列表与日志"}

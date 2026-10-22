@@ -268,6 +268,17 @@ def invalidate_settings_cache() -> None:
     get_settings.cache_clear()
 
 
+def local_timezone():
+    """定时任务与统计展示共用的时区（scheduler.timezone，无效值回退 Asia/Shanghai）。"""
+    from zoneinfo import ZoneInfo
+
+    name = get_settings().scheduler.timezone or "Asia/Shanghai"
+    try:
+        return ZoneInfo(name)
+    except Exception:  # noqa: BLE001
+        return ZoneInfo("Asia/Shanghai")
+
+
 def ensure_dirs(settings: Settings) -> None:
     settings.library_root.mkdir(parents=True, exist_ok=True)
     settings.videos_dir.mkdir(parents=True, exist_ok=True)
