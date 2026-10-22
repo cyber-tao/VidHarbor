@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from datetime import datetime, timezone as dt_timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -15,7 +16,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from .charts import provider_for
 from .config import get_settings, local_timezone
 from .db import get_sessionmaker
-from .downloader.engine import TaskQueue, active_task_urls, detect_platform
+from .downloader.engine import TaskQueue, dedup_key, detect_platform, task_creation
 from .downloader.options import parse_source_id
 from .events import bus
 from .models import DownloadTask, Schedule, Video, iso_utc, utcnow
@@ -127,8 +128,66 @@ def start_scheduler(queue: TaskQueue) -> AsyncIOScheduler:
     return scheduler
 
 
+# 同一定时任务同一时刻只跑一轮：定时触发与"立即运行"互斥
+_active_runs: set[int] = set()
+_active_runs_lock = threading.Lock()
+
+
+def claim_run(schedule_id: int) -> bool:
+    """占用该定时任务的运行权；上一轮尚未结束时返回 False。"""
+    with _active_runs_lock:
+        if schedule_id in _active_runs:
+            return False
+        _active_runs.add(schedule_id)
+        return True
+
+
+def release_run(schedule_id: int) -> None:
+    with _active_runs_lock:
+        _active_runs.discard(schedule_id)
+
+
 def run_schedule(schedule_id: int, queue: TaskQueue) -> dict:
-    """执行一次定时任务：逐榜单抓取 → TopN → 去重 → 创建下载任务。"""
+    """APScheduler 触发入口：上一轮（含手动立即运行）尚未结束时跳过本次。"""
+    if not claim_run(schedule_id):
+        log.warning("定时任务 #%d 上一轮仍在运行，跳过本次触发", schedule_id)
+        return {"created": 0, "skipped": 0, "failed": 0, "error": "上一轮仍在运行"}
+    try:
+        return run_claimed_schedule(schedule_id, queue)
+    finally:
+        release_run(schedule_id)
+
+
+def _enqueue_items(session, row: Schedule, items, limit: int,
+                   opts_json: str) -> tuple[list[DownloadTask], int]:
+    """为榜单条目建任务：进行中的同一视频与库中已有的计为跳过，最多处理 limit 条。"""
+    tasks: list[DownloadTask] = []
+    skipped = 0
+    with task_creation(session) as active:
+        for item in items:
+            if not getattr(item, "downloadable", True) or not item.url:
+                continue
+            if len(tasks) + skipped >= limit:
+                break
+            url = item.url[:1024]
+            platform = detect_platform(url)
+            key = dedup_key(platform, url)
+            sid = parse_source_id(platform, url) or item.source_id
+            in_library = bool(sid) and session.query(Video.id).filter_by(
+                platform=platform, source_id=str(sid)).first() is not None
+            if key in active or in_library:
+                skipped += 1
+                continue
+            active.add(key)
+            task = DownloadTask(url=url, platform=platform, schedule_id=row.id, options=opts_json)
+            session.add(task)
+            tasks.append(task)
+        session.commit()
+    return tasks, skipped
+
+
+def run_claimed_schedule(schedule_id: int, queue: TaskQueue) -> dict:
+    """执行一次定时任务（调用方已 claim_run）：逐榜单抓取 → TopN → 去重 → 创建下载任务。"""
     sm = get_sessionmaker()
     session = sm()
     try:
@@ -144,8 +203,6 @@ def run_schedule(schedule_id: int, queue: TaskQueue) -> dict:
         total_created, total_skipped, total_failed = 0, 0, 0
         errors: list[str] = []
         per_selection: list[dict] = []
-        # 上一轮任务可能尚未下载完成：队列中的 URL 直接跳过，防止重复下载
-        active_urls = active_task_urls(session)
         log.info("定时任务「%s」开始: %d 个榜单", row.name, len(selections))
         for sel in selections:
             platform = str(sel.get("platform") or "")
@@ -174,33 +231,11 @@ def run_schedule(schedule_id: int, queue: TaskQueue) -> dict:
                                       "period": period, "created": 0, "skipped": 0,
                                       "error": error})
                 continue
-            created = skipped = 0
-            for item in items:
-                if not getattr(item, "downloadable", True) or not item.url:
-                    continue
-                if created + skipped >= limit:
-                    break
-                if item.url[:1024] in active_urls:
-                    skipped += 1
-                    continue
-                sid = parse_source_id(detect_platform(item.url), item.url) or item.source_id
-                exists = False
-                if sid:
-                    exists = session.query(Video).filter_by(
-                        platform=detect_platform(item.url), source_id=str(sid)
-                    ).first() is not None
-                if exists:
-                    skipped += 1
-                    continue
-                t = DownloadTask(
-                    url=item.url[:1024], platform=detect_platform(item.url),
-                    schedule_id=row.id, options=opts_json,
-                )
-                session.add(t)
-                session.commit()
-                queue.submit(t.id, t.platform)
-                active_urls.add(t.url)
-                created += 1
+            # 抓榜单是网络 I/O，放在建任务锁之外；入队去重在锁内重新判定
+            tasks, skipped = _enqueue_items(session, row, items, limit, opts_json)
+            for task in tasks:
+                queue.submit(task.id, task.platform)
+            created = len(tasks)
             total_created += created
             total_skipped += skipped
             per_selection.append({"platform": platform, "category": category,

@@ -357,6 +357,103 @@ class TestTaskDedup:
         assert client.post(f"/api/tasks/{tid}/retry").status_code == 409
         client.delete(f"/api/tasks/{r3.json()['tasks'][0]['id']}")  # 清理
 
+    def test_same_video_with_different_url_forms(self, client, monkeypatch):
+        monkeypatch.setattr(client.app.state.queue, "submit", lambda *a, **k: None)
+        r1 = client.post("/api/tasks", json={
+            "urls": ["https://www.youtube.com/watch?v=formcheck01"]}).json()
+        r2 = client.post("/api/tasks", json={"urls": ["https://youtu.be/formcheck01"]}).json()
+        try:
+            assert len(r1["tasks"]) == 1
+            assert r2["tasks"] == [] and r2["skipped"] == 1
+        finally:
+            client.delete(f"/api/tasks/{r1['tasks'][0]['id']}")
+
+
+class TestScheduleConcurrency:
+    """并发运行（榜单重叠的两个定时任务、立即运行撞上定时触发）不得为同一视频重复建任务。"""
+
+    URLS = [f"https://www.bilibili.com/video/BV1RACE000{i}x" for i in range(5)]
+
+    def _setup(self, client, monkeypatch, n_schedules):
+        import json as _json
+        import time as _time
+
+        from app import scheduler as sched
+        from app.charts.base import TrendingItem
+        from app.db import get_sessionmaker
+        from app.models import Schedule
+
+        urls = self.URLS
+
+        class SlowProvider:
+            def normalize(self, category, period):
+                return category or "hot", period
+
+            def is_downloadable(self, category):
+                return True
+
+            def fetch(self, category, period):
+                _time.sleep(0.3)  # 模拟抓榜单的网络耗时，让两轮运行重叠
+                return [TrendingItem(source_id=u.rsplit("/", 1)[1], url=u) for u in urls]
+
+        monkeypatch.setattr(sched, "provider_for", lambda p: SlowProvider())
+        monkeypatch.setattr(client.app.state.queue, "submit", lambda *a, **k: None)
+        sm = get_sessionmaker()
+        ids = []
+        with sm() as s:
+            for i in range(n_schedules):
+                row = Schedule(name=f"并发{i}", mode="daily", selections=_json.dumps(
+                    [{"platform": "bilibili", "category": "hot", "period": "", "limit": 10}]))
+                s.add(row)
+                s.commit()
+                ids.append(row.id)
+        return sched, sm, ids
+
+    def _task_urls(self, sm):
+        from app.models import DownloadTask
+
+        with sm() as s:
+            return [u for (u,) in s.query(DownloadTask.url).filter(DownloadTask.url.in_(self.URLS))]
+
+    def _cleanup(self, sm, ids):
+        from app.models import DownloadTask, Schedule
+
+        with sm() as s:
+            s.query(DownloadTask).filter(DownloadTask.url.in_(self.URLS)).delete(
+                synchronize_session=False)
+            for sid in ids:
+                s.delete(s.get(Schedule, sid))
+            s.commit()
+
+    def test_overlapping_schedules_do_not_duplicate(self, client, monkeypatch):
+        import threading
+
+        sched, sm, ids = self._setup(client, monkeypatch, 2)
+        try:
+            threads = [threading.Thread(target=sched.run_schedule,
+                                        args=(sid, client.app.state.queue)) for sid in ids]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            assert sorted(self._task_urls(sm)) == sorted(self.URLS)  # 每个视频恰好一个任务
+        finally:
+            self._cleanup(sm, ids)
+
+    def test_same_schedule_runs_one_round_at_a_time(self, client, monkeypatch):
+        sched, sm, ids = self._setup(client, monkeypatch, 1)
+        sid = ids[0]
+        try:
+            assert sched.claim_run(sid)  # 模拟本轮正在运行
+            try:
+                assert sched.run_schedule(sid, client.app.state.queue)["error"] == "上一轮仍在运行"
+                assert client.post(f"/api/schedules/{sid}/run").status_code == 409
+            finally:
+                sched.release_run(sid)
+            assert self._task_urls(sm) == []
+        finally:
+            self._cleanup(sm, ids)
+
 
 class TestScheduleDedup:
     """定时任务两轮连跑：上一轮还在队列中的 URL 第二轮跳过，不重复下载。"""

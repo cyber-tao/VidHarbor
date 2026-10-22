@@ -11,7 +11,14 @@ from ..charts import provider_for
 from ..config import PLATFORMS
 from ..db import get_sessionmaker
 from ..models import Schedule
-from ..scheduler import make_trigger, register, schedule_snapshot
+from ..scheduler import (
+    claim_run,
+    make_trigger,
+    register,
+    release_run,
+    run_claimed_schedule,
+    schedule_snapshot,
+)
 
 log = logging.getLogger("vidharbor.api.schedules")
 router = APIRouter()
@@ -167,10 +174,8 @@ def toggle_schedule(schedule_id: int, request: Request):
 
 @router.post("/api/schedules/{schedule_id}/run")
 async def run_schedule_now(schedule_id: int, request: Request):
-    """立即运行一次（后台线程执行，立即返回）。"""
+    """立即运行一次（后台线程执行，立即返回）；本轮或定时触发的一轮尚未结束时返回 409。"""
     import asyncio
-
-    from ..scheduler import run_schedule
 
     sm = get_sessionmaker()
     with sm() as session:
@@ -178,9 +183,17 @@ async def run_schedule_now(schedule_id: int, request: Request):
         if row is None:
             raise HTTPException(status_code=404, detail="定时任务不存在")
         name = row.name
+    if not claim_run(schedule_id):
+        raise HTTPException(status_code=409, detail=f"「{name}」正在运行中，请等本轮结束后再试")
     queue = request.app.state.queue
-    loop = asyncio.get_running_loop()
-    future = loop.run_in_executor(None, run_schedule, schedule_id, queue)
+
+    def _run() -> dict:
+        try:
+            return run_claimed_schedule(schedule_id, queue)
+        finally:
+            release_run(schedule_id)
+
+    future = asyncio.get_running_loop().run_in_executor(None, _run)
 
     def _log_failure(f) -> None:
         exc = f.exception()

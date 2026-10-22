@@ -7,6 +7,7 @@ import threading
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 
 from ..config import Settings, get_settings
 from ..db import get_sessionmaker
@@ -34,12 +35,31 @@ def detect_platform(url: str) -> str:
     return "other"
 
 
-def active_task_urls(session) -> set[str]:
-    """当前排队/下载中任务的 URL 集合（创建新任务前去重，防止同一视频并发下载两份）。"""
-    rows = session.query(DownloadTask.url).filter(
+def dedup_key(platform: str, url: str) -> str:
+    """同一视频的去重键：URL 能解析出视频 id 时用 platform:id（不同写法的链接视为同一视频），否则用 URL。"""
+    sid = parse_source_id(platform, url)
+    return f"{platform}:{sid}" if sid else url[:1024]
+
+
+def active_task_keys(session) -> set[str]:
+    rows = session.query(DownloadTask.platform, DownloadTask.url).filter(
         DownloadTask.status.in_(("pending", "running"))
     ).all()
-    return {u for (u,) in rows if u}
+    return {dedup_key(platform, url) for platform, url in rows if url}
+
+
+_task_creation_lock = threading.Lock()
+
+
+@contextmanager
+def task_creation(session):
+    """互斥地取得进行中任务的去重键集合；调用方须在 with 块内完成插入并 commit。
+
+    所有建任务路径（手动提交、重试、定时触发、立即运行）共用这把锁：
+    "查进行中 → 插入 → 提交"若不互斥，并发路径各拿一份快照，会为同一视频各建一个任务。
+    """
+    with _task_creation_lock:
+        yield active_task_keys(session)
 
 
 def task_snapshot(t: DownloadTask) -> dict:

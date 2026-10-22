@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ..db import get_sessionmaker
-from ..downloader.engine import active_task_urls, detect_platform, task_snapshot
+from ..downloader.engine import dedup_key, detect_platform, task_creation, task_snapshot
 from ..downloader.urlnorm import normalize_inputs
 from ..events import bus
 from ..models import DownloadTask
@@ -47,18 +47,22 @@ def create_tasks(req: CreateTasksReq, request: Request):
     sm = get_sessionmaker()
     queue = request.app.state.queue
     with sm() as session:
-        # 已在队列中的 URL 跳过：避免同一视频被并发完整下载两份
-        active = active_task_urls(session)
-        tasks = []
+        tasks: list[DownloadTask] = []
         skipped = 0
-        for u in urls:
-            if u[:1024] in active:
-                skipped += 1
-                continue
-            t = DownloadTask(url=u[:1024], platform=detect_platform(u), options=options_json)
-            session.add(t)
-            tasks.append(t)
-        session.commit()
+        # 已在队列中（排队/下载中）的同一视频跳过：避免被并发完整下载两份
+        with task_creation(session) as active:
+            for u in urls:
+                url = u[:1024]
+                platform = detect_platform(url)
+                key = dedup_key(platform, url)
+                if key in active:
+                    skipped += 1
+                    continue
+                active.add(key)
+                t = DownloadTask(url=url, platform=platform, options=options_json)
+                session.add(t)
+                tasks.append(t)
+            session.commit()
         for t in tasks:
             queue.submit(t.id, t.platform)
         snapshots = [task_snapshot(t) for t in tasks]
@@ -112,16 +116,12 @@ def retry_task(task_id: int, request: Request):
             raise HTTPException(status_code=404, detail="任务不存在")
         if old.status in ("pending", "running"):
             raise HTTPException(status_code=400, detail="任务尚未结束，无需重试")
-        dup = session.query(DownloadTask).filter(
-            DownloadTask.status.in_(("pending", "running")),
-            DownloadTask.url == old.url,
-            DownloadTask.id != old.id,
-        ).first()
-        if dup is not None:
-            raise HTTPException(status_code=409, detail="已有相同链接的任务正在队列中")
-        t = DownloadTask(url=old.url, platform=old.platform,
-                         options=old.options, schedule_id=old.schedule_id)
-        session.add(t)
-        session.commit()
+        with task_creation(session) as active:
+            if dedup_key(old.platform, old.url) in active:
+                raise HTTPException(status_code=409, detail="同一视频已有任务正在队列中")
+            t = DownloadTask(url=old.url, platform=old.platform,
+                             options=old.options, schedule_id=old.schedule_id)
+            session.add(t)
+            session.commit()
     request.app.state.queue.submit(t.id, t.platform)
     return {"task": task_snapshot(t)}
