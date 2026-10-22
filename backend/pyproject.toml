@@ -13,6 +13,8 @@ dependencies = [
     "pydantic-settings>=2.3",
     "apscheduler>=3.11.3",
     "segno>=1.6.6",
+    # yt-dlp impersonation backend: TikTok extractor needs browser TLS fingerprint
+    "curl-cffi>=0.7",
     "python-multipart>=0.0.32",
 ]
 
