@@ -7,12 +7,8 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException
 
-from ..charts.base import ChartError, ChartProvider
-from ..charts.bilibili import BilibiliProvider
-from ..charts.douyin import DouyinProvider
-from ..charts.tiktok import TikTokProvider
-from ..charts.youtube import YoutubeProvider
-from ..config import get_settings
+from ..charts import provider_for
+from ..charts.base import ChartError
 from ..db import get_sessionmaker
 from ..models import ChartCache, utcnow
 
@@ -28,20 +24,6 @@ def _as_utc(dt: datetime | None) -> datetime | None:
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 
-def _registry() -> dict[str, ChartProvider]:
-    settings = get_settings()
-    return {
-        "bilibili": BilibiliProvider(settings),
-        "youtube": YoutubeProvider(settings),
-        "tiktok": TikTokProvider(settings),
-        "douyin": DouyinProvider(settings),
-    }
-
-
-def provider_for(platform: str) -> ChartProvider | None:
-    return _registry().get(platform)
-
-
 @router.get("/api/charts")
 def list_platforms():
     return {"platforms": [
@@ -55,8 +37,7 @@ def list_platforms():
 @router.get("/api/charts/{platform}")
 def get_charts(platform: str, category: str = "", period: str = "", refresh: bool = False,
                meta: bool = False):
-    reg = _registry()
-    provider = reg.get(platform)
+    provider = provider_for(platform)
     if provider is None:
         raise HTTPException(status_code=404, detail=f"不支持的平台: {platform}")
     categories = provider.categories()

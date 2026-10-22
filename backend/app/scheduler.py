@@ -13,7 +13,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from .api.charts import provider_for
+from .charts import provider_for
 from .config import get_settings
 from .db import get_sessionmaker
 from .downloader.engine import TaskQueue, active_task_urls, detect_platform
