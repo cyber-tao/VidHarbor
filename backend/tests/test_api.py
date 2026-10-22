@@ -370,6 +370,92 @@ class TestVideoDelete:
                 p.unlink(missing_ok=True)
 
 
+class TestVideoStreaming:
+    """播放与拖动进度：Range 请求（含后缀 bytes=-N）由 FileResponse 处理。"""
+
+    @pytest.fixture
+    def video(self, client):
+        import uuid
+
+        from app.config import get_settings
+        from app.db import get_sessionmaker
+        from app.models import Video
+
+        data = bytes(range(256)) * 4  # 1024 字节，按位置可校验
+        rel = f"videos/_test/{uuid.uuid4().hex}.mp4"
+        path = get_settings().library_root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        sm = get_sessionmaker()
+        with sm() as s:
+            v = Video(platform="other", source_id=rel, title="range", video_path=rel)
+            s.add(v)
+            s.commit()
+            vid = v.id
+        yield vid, data
+        with sm() as s:
+            s.delete(s.get(Video, vid))
+            s.commit()
+        path.unlink(missing_ok=True)
+
+    def test_full_and_range_requests(self, client, video):
+        vid, data = video
+        url = f"/api/videos/{vid}/file"
+        full = client.get(url)
+        assert full.status_code == 200 and full.content == data
+        assert full.headers["accept-ranges"] == "bytes"
+        head = client.get(url, headers={"Range": "bytes=0-99"})
+        assert head.status_code == 206 and head.content == data[:100]
+        assert head.headers["content-range"] == "bytes 0-99/1024"
+        tail = client.get(url, headers={"Range": "bytes=-100"})  # 后缀范围：最后 100 字节
+        assert tail.status_code == 206 and tail.content == data[-100:]
+        assert client.get(url, headers={"Range": "bytes=5000-6000"}).status_code == 416
+
+
+class TestLibraryListQueries:
+    """视频库列表：SQL 次数与页大小无关（标签预取、字幕只计数），不加载 raw_metadata/简介。"""
+
+    def test_query_count_independent_of_page_size(self, client):
+        from sqlalchemy import event
+
+        from app.db import get_engine, get_sessionmaker
+        from app.models import Subtitle, Tag, Video
+
+        sm = get_sessionmaker()
+        with sm() as s:
+            for i in range(6):
+                v = Video(platform="other", source_id=f"qcount-{i}", title=f"q{i}",
+                          raw_metadata="x" * 10000)
+                v.tags = [Tag(name="qcount-tag")]
+                v.subtitles = [Subtitle(lang="en", content="1\n00:00:01,000 --> 00:00:02,000\nhi\n")]
+                s.add(v)
+            s.commit()
+        statements: list[str] = []
+
+        def record(conn, cursor, statement, *args):
+            statements.append(statement)
+
+        engine = get_engine()
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            six = client.get("/api/videos", params={"tag": "qcount-tag", "page_size": 6}).json()
+            n_six = len(statements)
+            statements.clear()
+            client.get("/api/videos", params={"tag": "qcount-tag", "page_size": 1})
+            n_one = len(statements)
+            selects = list(statements)
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+            with sm() as s:
+                for v in s.query(Video).filter(Video.source_id.like("qcount-%")):
+                    s.delete(v)
+                s.commit()
+        assert n_six == n_one  # 没有按条目数增长的 N+1 查询
+        assert not any("raw_metadata" in sql for sql in selects)
+        assert len(six["items"]) == 6
+        assert all(it["subtitles_count"] == 1 and it["tags"] == ["qcount-tag"] for it in six["items"])
+
+
 class TestProxySettingsAPI:
     def test_put_proxy_settings(self, client):
         from app.config import invalidate_settings_cache

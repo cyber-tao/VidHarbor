@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import logging
-import re
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
-from sqlalchemy import or_
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse, PlainTextResponse
+from sqlalchemy import func, or_
+from sqlalchemy.orm import defer, selectinload
 
 from ..config import get_settings
 from ..db import get_sessionmaker
@@ -18,8 +18,6 @@ from ..models import DownloadTask, Subtitle, Tag, Video, iso_utc
 
 log = logging.getLogger("vidharbor.api.videos")
 router = APIRouter()
-
-RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)")
 
 
 def _unlink_retry(p: Path, tries: int = 5, delay: float = 0.4) -> bool:
@@ -36,7 +34,7 @@ def _unlink_retry(p: Path, tries: int = 5, delay: float = 0.4) -> bool:
     return False
 
 
-def _video_dict(v: Video, detail: bool = False) -> dict:
+def _video_dict(v: Video, subtitles_count: int, detail: bool = False) -> dict:
     d = {
         "id": v.id, "platform": v.platform, "source_id": v.source_id, "url": v.url,
         "title": v.title, "uploader": v.uploader, "upload_date": v.upload_date,
@@ -45,7 +43,7 @@ def _video_dict(v: Video, detail: bool = False) -> dict:
         "vcodec": v.vcodec, "acodec": v.acodec,
         "view_count": v.view_count, "like_count": v.like_count,
         "has_thumbnail": bool(v.thumbnail_path),
-        "subtitles_count": len(v.subtitles),
+        "subtitles_count": subtitles_count,
         "tags": [t.name for t in v.tags],
         "created_at": iso_utc(v.created_at),
     }
@@ -77,36 +75,45 @@ def list_videos(
     page = max(1, page)
     page_size = min(max(1, page_size), 200)
     sm = get_sessionmaker()
+    filters = []
+    if q:
+        like = f"%{q}%"
+        filters.append(or_(
+            Video.title.like(like),
+            Video.uploader.like(like),
+            Video.description.like(like),
+        ))
+    if platform:
+        filters.append(Video.platform == platform)
+    # 支持逗号分隔多标签（AND 语义）
+    for tname in [t.strip() for t in tag.split(",") if t.strip()]:
+        filters.append(Video.tags.any(Tag.name == tname))
     with sm() as session:
-        query = session.query(Video)
-        if q:
-            like = f"%{q}%"
-            query = query.filter(or_(
-                Video.title.like(like),
-                Video.uploader.like(like),
-                Video.description.like(like),
-            ))
-        if platform:
-            query = query.filter(Video.platform == platform)
-        # 支持逗号分隔多标签（AND 语义）
-        for tname in [t.strip() for t in tag.split(",") if t.strip()]:
-            query = query.filter(Video.tags.any(Tag.name == tname))
-        total = query.count()
+        total = session.query(func.count(Video.id)).filter(*filters).scalar() or 0
+        # 列表用不到的大字段不加载；标签一次性预取，字幕只要条数（不能为计数加载 SRT 全文）
         rows = (
-            query.order_by(Video.created_at.desc(), Video.id.desc())
+            session.query(Video)
+            .options(defer(Video.raw_metadata), defer(Video.description),
+                     selectinload(Video.tags))
+            .filter(*filters)
+            .order_by(Video.created_at.desc(), Video.id.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
             .all()
         )
+        sub_counts = dict(
+            session.query(Subtitle.video_id, func.count(Subtitle.id))
+            .filter(Subtitle.video_id.in_([v.id for v in rows]))
+            .group_by(Subtitle.video_id)
+            .all()
+        ) if rows else {}
         return {"total": total, "page": page, "page_size": page_size,
-                "items": [_video_dict(v) for v in rows]}
+                "items": [_video_dict(v, sub_counts.get(v.id, 0)) for v in rows]}
 
 
 @router.get("/api/tags")
 def list_tags(platform: str = "", q: str = ""):
     """标签聚合（按视频数排序），供视频库筛选条使用。"""
-    from sqlalchemy import func
-
     sm = get_sessionmaker()
     with sm() as session:
         query = (
@@ -129,7 +136,7 @@ def video_detail(video_id: int):
         v = session.get(Video, video_id)
         if v is None:
             raise HTTPException(status_code=404, detail="视频不存在")
-        return _video_dict(v, detail=True)
+        return _video_dict(v, len(v.subtitles), detail=True)
 
 
 def _safe_exists(path) -> bool:
@@ -141,7 +148,8 @@ def _safe_exists(path) -> bool:
 
 
 @router.get("/api/videos/{video_id}/file")
-def video_file(video_id: int, request: Request):
+def video_file(video_id: int):
+    """播放/拖动进度：FileResponse 自带 Range 支持（单段、后缀 bytes=-N、多段、416）。"""
     settings = get_settings()
     sm = get_sessionmaker()
     with sm() as session:
@@ -151,38 +159,7 @@ def video_file(video_id: int, request: Request):
         path = settings.library_root / v.video_path
     if not _safe_exists(path):
         raise HTTPException(status_code=410, detail="视频文件缺失")
-    size = path.stat().st_size
-    range_header = request.headers.get("range")
-    start, end = 0, size - 1
-    status_code = 200
-    headers = {"Accept-Ranges": "bytes", "Content-Type": "video/mp4"}
-
-    if range_header:
-        m = RANGE_RE.match(range_header)
-        if m:
-            s_str, e_str = m.groups()
-            start = int(s_str) if s_str else 0
-            end = int(e_str) if e_str else size - 1
-            end = min(end, size - 1)
-            if start > end or start >= size:
-                return StreamingResponse(iter(()), status_code=416,
-                                         headers={"Content-Range": f"bytes */{size}"})
-            status_code = 206
-            headers["Content-Range"] = f"bytes {start}-{end}/{size}"
-    headers["Content-Length"] = str(end - start + 1)
-
-    def iter_file():
-        remaining = end - start + 1
-        with path.open("rb") as f:
-            f.seek(start)
-            while remaining > 0:
-                chunk = f.read(min(1024 * 1024, remaining))
-                if not chunk:
-                    break
-                remaining -= len(chunk)
-                yield chunk
-
-    return StreamingResponse(iter_file(), status_code=status_code, headers=headers)
+    return FileResponse(path, media_type="video/mp4")
 
 
 @router.get("/api/videos/{video_id}/thumbnail")

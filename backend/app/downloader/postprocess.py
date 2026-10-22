@@ -22,6 +22,20 @@ log = logging.getLogger("vidharbor.postprocess")
 
 KNOWN_PLATFORMS = {"youtube", "bilibili", "tiktok", "douyin"}
 
+# yt-dlp info 中只对本次下载有意义的数据：带签名会过期的地址、全部格式/分片清单、
+# 字幕与缩略图地址等。入库后没有用处，却占 raw_metadata 的绝大部分体积（YouTube 单条数百 KB）
+_TRANSIENT_INFO_KEYS = frozenset({
+    "formats", "requested_formats", "requested_downloads", "requested_subtitles",
+    "thumbnails", "subtitles", "automatic_captions", "heatmap",
+    "http_headers", "fragments", "url", "manifest_url",
+})
+
+
+def archived_metadata(info: dict) -> str:
+    kept = {k: v for k, v in info.items()
+            if k not in _TRANSIENT_INFO_KEYS and not k.startswith("_")}
+    return json.dumps(kept, ensure_ascii=False, default=str)
+
 
 def _run_ffmpeg(cmd: list[str], cancel: threading.Event | None = None, timeout: int = 7200) -> None:
     """跑 ffmpeg 子进程：取消/超时立即 kill，失败抛 RuntimeError。
@@ -289,7 +303,7 @@ def ingest(
             acodec=str(a.get("codec_name") or ""),
             view_count=int(info.get("view_count") or 0),
             like_count=int(info.get("like_count") or 0),
-            raw_metadata=json.dumps(info, ensure_ascii=False, default=str),
+            raw_metadata=archived_metadata(info),
         )
         session.add(video)
         session.flush()

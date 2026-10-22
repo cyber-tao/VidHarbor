@@ -50,6 +50,24 @@ class TestSrtToVtt:
         assert "," not in vtt.split("-->")[1].split("\n")[0]
 
 
+class TestArchivedMetadata:
+    def test_drops_transient_download_data(self):
+        import json
+
+        from app.downloader.postprocess import archived_metadata
+
+        info = {
+            "id": "x", "title": "T", "tags": ["a"], "chapters": [{"title": "c"}],
+            "formats": [{"url": "https://cdn.example/x?sig=1"}] * 50,
+            "automatic_captions": {"en": [{"url": "https://cdn.example/sub"}]},
+            "requested_downloads": [{"filepath": "/tmp/x.mp4"}],
+            "http_headers": {"User-Agent": "x"}, "url": "https://cdn.example/x?sig=1",
+            "_type": "video", "_version": {"version": "2026.08.19"},
+        }
+        kept = json.loads(archived_metadata(info))
+        assert kept == {"id": "x", "title": "T", "tags": ["a"], "chapters": [{"title": "c"}]}
+
+
 class TestIngestRecovery:
     """入库提交失败（并发撞唯一约束）：回收已移动文件，关联抢先入库的条目。"""
 
