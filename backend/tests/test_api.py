@@ -43,8 +43,9 @@ class TestTaskValidation:
     def test_task_404(self, client):
         assert client.post("/api/tasks/99999/retry").status_code == 404
 
-    def test_create_with_options(self, client):
-        """创建任务带下载选项；随后取消清理。"""
+    def test_create_with_options(self, client, monkeypatch):
+        """创建任务带下载选项；随后取消清理（不真正入队，避免测试发起网络下载）。"""
+        monkeypatch.setattr(client.app.state.queue, "submit", lambda *a, **k: None)
         res = client.post("/api/tasks", json={
             "urls": ["https://www.youtube.com/watch?v=nevergonnahappen1"],
             "options": {"max_height": 720, "codec": "h265"},
@@ -496,7 +497,12 @@ class TestScheduleDedup:
             assert r2["created"] == 0
             assert r2["skipped"] == 1
         finally:
+            from app.models import DownloadTask
+
             with sm() as s:
+                # 遗留的 pending 任务会在下一个测试模块启动时被重新入队并真的去下载
+                s.query(DownloadTask).filter(DownloadTask.schedule_id == sid).delete(
+                    synchronize_session=False)
                 s.delete(s.get(Schedule, sid))
                 s.commit()
 

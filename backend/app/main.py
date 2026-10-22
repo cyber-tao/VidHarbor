@@ -72,7 +72,7 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
     except Exception:  # noqa: BLE001
         pass
-    queue.stop()
+    await asyncio.to_thread(queue.stop)
 
 
 app = FastAPI(title="VidHarbor", version="0.2.0", lifespan=lifespan)

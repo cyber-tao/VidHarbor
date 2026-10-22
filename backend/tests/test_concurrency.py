@@ -205,6 +205,118 @@ class TestRunFFmpeg:
             assert len(raised) == 1 and isinstance(raised[0], DownloadCancelled)
 
 
+class TestShutdownAndRecovery:
+    """关闭时中断运行中任务并收尾；启动时恢复：pending 重新入队、running 记失败、清残留临时目录。"""
+
+    def test_stop_interrupts_running_task(self, monkeypatch):
+        from app.config import get_settings
+        from app.db import get_sessionmaker
+        from app.downloader import engine
+        from app.downloader.engine import INTERRUPTED_ERROR, TaskQueue
+        from app.downloader.ytdlp import DownloadCancelled
+        from app.models import DownloadTask
+
+        started = threading.Event()
+
+        def fake_download(url, settings, temp_dir, on_progress, on_stage, cancel, **kw):
+            started.set()
+            cancel.wait(10)  # 模拟长时间下载：只有取消信号才能让它退出
+            raise DownloadCancelled()
+
+        monkeypatch.setattr(engine, "ytdlp_download", fake_download)
+        sm = get_sessionmaker()
+        with sm() as s:
+            task = DownloadTask(url="https://www.youtube.com/watch?v=shutdown001", platform="youtube")
+            s.add(task)
+            s.commit()
+            tid = task.id
+        q = TaskQueue(get_settings())
+        q._dispatcher = threading.Thread(target=q._dispatch_loop, daemon=True)
+        q._dispatcher.start()
+        try:
+            q.submit(tid, "youtube")
+            assert started.wait(5)
+            start = time.monotonic()
+            q.stop(timeout=5)
+            assert time.monotonic() - start < 3  # 取消信号让下载立刻退出，没有等满超时
+            with sm() as s:
+                row = s.get(DownloadTask, tid)
+                assert row.status == "failed" and row.error == INTERRUPTED_ERROR
+            assert not (get_settings().tmp_dir / f"task-{tid}").exists()
+        finally:
+            with sm() as s:
+                s.delete(s.get(DownloadTask, tid))
+                s.commit()
+
+    def test_recover_requeues_pending_and_sweeps_tmp(self, monkeypatch):
+        from app.config import get_settings
+        from app.db import get_sessionmaker
+        from app.downloader.engine import INTERRUPTED_ERROR, TaskQueue
+        from app.models import DownloadTask
+
+        settings = get_settings()
+        leftover = settings.tmp_dir / "task-987654"
+        leftover.mkdir(parents=True, exist_ok=True)
+        (leftover / "partial.mp4.part").write_bytes(b"x")
+        sm = get_sessionmaker()
+        with sm() as s:
+            pending = DownloadTask(url="https://www.youtube.com/watch?v=recover0001",
+                                   platform="youtube", status="pending")
+            running = DownloadTask(url="https://www.youtube.com/watch?v=recover0002",
+                                   platform="youtube", status="running")
+            s.add_all([pending, running])
+            s.commit()
+            pid, rid = pending.id, running.id
+        q = TaskQueue(settings)
+        submitted: list[int] = []
+        monkeypatch.setattr(q, "submit", lambda tid, platform="other": submitted.append(tid))
+        try:
+            q._recover_interrupted()
+            assert pid in submitted and rid not in submitted
+            assert not leftover.exists()
+            with sm() as s:
+                assert s.get(DownloadTask, pid).status == "pending"
+                row = s.get(DownloadTask, rid)
+                assert row.status == "failed" and row.error == INTERRUPTED_ERROR
+        finally:
+            q.executor.shutdown(wait=False)
+            with sm() as s:
+                for tid in (pid, rid):
+                    s.delete(s.get(DownloadTask, tid))
+                s.commit()
+
+    def test_record_end_after_failed_commit(self):
+        """commit 失败后会话处于 PendingRollback：收尾必须先 rollback，否则任务永远卡在 running。"""
+        from sqlalchemy.exc import IntegrityError
+
+        from app.db import get_sessionmaker
+        from app.downloader.engine import TaskQueue
+        from app.models import DownloadTask, Video
+
+        sm = get_sessionmaker()
+        with sm() as s:
+            task = DownloadTask(url="https://www.youtube.com/watch?v=rollback001",
+                                platform="youtube", status="running")
+            video = Video(platform="other", source_id="rollback-dup")
+            s.add_all([task, video])
+            s.commit()
+            tid, vid = task.id, video.id
+        session = sm()
+        try:
+            session.add(Video(platform="other", source_id="rollback-dup"))  # 撞唯一约束
+            with pytest.raises(IntegrityError):
+                session.commit()
+            TaskQueue._record_end(session, tid, "failed", "boom")
+        finally:
+            session.close()
+        with sm() as s:
+            row = s.get(DownloadTask, tid)
+            assert row.status == "failed" and row.error == "boom"
+            s.delete(row)
+            s.delete(s.get(Video, vid))
+            s.commit()
+
+
 class TestSettingsConcurrencyAPI:
     def test_roundtrip_and_restore(self, client):
         from app.config import invalidate_settings_cache

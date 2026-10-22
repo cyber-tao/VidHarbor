@@ -52,5 +52,6 @@ services:
     # engine at http://host.docker.internal:8000 (no-op where the name already exists)
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # Give downloads/transcodes time to finish on stop/recreate
+    # On stop the app closes SSE streams (5 s cap), cancels running downloads/transcodes
+    # and waits up to 10 s for them to record their state and remove temp files
     stop_grace_period: 30s

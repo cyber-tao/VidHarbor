@@ -19,6 +19,8 @@ from .ytdlp import DownloadCancelled, ytdlp_download
 
 log = logging.getLogger("vidharbor.engine")
 
+INTERRUPTED_ERROR = "服务重启，任务中断，请重试"
+
 PLATFORM_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("youtube", ("youtube.com", "youtu.be")),
     ("bilibili", ("bilibili.com", "b23.tv", "bili22.cn", "bili2233.cn")),
@@ -130,22 +132,56 @@ class TaskQueue:
                     self.settings.evil0ctal.base_url,
                 )
 
-    def stop(self) -> None:
+    def stop(self, timeout: float = 10.0) -> None:
+        """停止调度并取消运行中的任务，最多等 timeout 秒让它们写完终态、清理临时目录。
+
+        不发取消信号的话，解释器退出时会 join 线程池，一直等到下载/转码自然结束。
+        """
         self._stopped.set()
         self._wake.set()
-        self.executor.shutdown(wait=False, cancel_futures=True)
+        with self._lock:
+            self._pending.clear()  # 未开始的任务在库里仍是 pending，下次启动重新入队
+            for ev in self.cancel_flags.values():
+                ev.set()
+        self.executor.shutdown(wait=False)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with self._lock:
+                if not self._running:
+                    return
+            time.sleep(0.2)
+        with self._lock:
+            left = len(self._running)
+        log.warning("关闭超时：仍有 %d 个任务未退出", left)
 
     def _recover_interrupted(self) -> None:
+        """启动恢复：上次被打断的 running 任务记为失败，从未开始的 pending 任务重新入队，
+        并清掉残留的 task-* 临时目录（此刻没有任何任务在运行）。"""
         sm = get_sessionmaker()
         with sm() as session:
-            stuck = session.query(DownloadTask).filter(
-                DownloadTask.status.in_(["pending", "running"])
-            ).all()
-            for t in stuck:
+            rows = (
+                session.query(DownloadTask)
+                .filter(DownloadTask.status.in_(("pending", "running")))
+                .order_by(DownloadTask.id)
+                .all()
+            )
+            interrupted = [t for t in rows if t.status == "running"]
+            for t in interrupted:
                 t.status = "failed"
-                t.error = "服务重启，任务中断，请重试"
-                session.commit()
+                t.stage = ""
+                t.error = INTERRUPTED_ERROR
+            requeue = [(t.id, t.platform) for t in rows if t.status == "pending"]
+            session.commit()
+            for t in interrupted:
                 bus.publish("task", task_snapshot(t))
+        for task_id, platform in requeue:
+            self.submit(task_id, platform)
+        swept = 0
+        for leftover in self.settings.tmp_dir.glob("task-*"):
+            shutil.rmtree(leftover, ignore_errors=True)
+            swept += 1
+        if requeue or swept:
+            log.info("启动恢复：%d 个排队任务重新入队，清理 %d 个残留临时目录", len(requeue), swept)
 
     def submit(self, task_id: int, platform: str = "other") -> None:
         ev = threading.Event()
@@ -193,12 +229,32 @@ class TaskQueue:
 
     # ---- worker ----
 
+    @staticmethod
+    def _record_end(session, task_id: int, status: str, error: str | None = None) -> None:
+        """异常路径写终态：先 rollback（失败的 commit 会让会话卡在 PendingRollback），
+        只覆盖仍在进行中的任务；写库本身失败时只记日志，不再向上抛。"""
+        try:
+            session.rollback()
+            task = session.get(DownloadTask, task_id)
+            if task is None or task.status not in ("pending", "running"):
+                return
+            task.status = status
+            task.stage = ""
+            if error is not None:
+                task.error = error
+            session.commit()
+            bus.publish("task", task_snapshot(task))
+        except Exception:  # noqa: BLE001
+            log.exception("任务 #%d 写入终态 %s 失败", task_id, status)
+
     def _run(self, task_id: int) -> None:
         # 每个任务重新解析配置：Web 设置页修改（兜底服务地址/API key 等）即时生效
         settings = get_settings()
         session = get_sessionmaker()()
         temp_dir = settings.tmp_dir / f"task-{task_id}"
         try:
+            if self._stopped.is_set():
+                return  # 关闭中不再开始新任务：库里仍是 pending，下次启动重新入队
             with self._lock:
                 cancel = self.cancel_flags.get(task_id)
             task = session.get(DownloadTask, task_id)
@@ -298,22 +354,15 @@ class TaskQueue:
             bus.mark_stats_dirty()
             log.info("任务 #%d 完成: %s", task_id, video.title[:60])
         except DownloadCancelled:
-            task = session.get(DownloadTask, task_id)
-            if task is not None:
-                task.status = "canceled"
-                task.stage = ""
-                session.commit()
-                bus.publish("task", task_snapshot(task))
-            log.info("任务 #%d 已取消", task_id)
+            if self._stopped.is_set():
+                self._record_end(session, task_id, "failed", INTERRUPTED_ERROR)
+                log.info("任务 #%d 因服务关闭中断", task_id)
+            else:
+                self._record_end(session, task_id, "canceled")
+                log.info("任务 #%d 已取消", task_id)
         except Exception as e:  # noqa: BLE001
             log.error("任务 #%d 异常: %s", task_id, e)
-            task = session.get(DownloadTask, task_id)
-            if task is not None and task.status == "running":
-                task.status = "failed"
-                task.stage = ""
-                task.error = f"{type(e).__name__}: {e}"
-                session.commit()
-                bus.publish("task", task_snapshot(task))
+            self._record_end(session, task_id, "failed", f"{type(e).__name__}: {e}")
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
             with self._lock:

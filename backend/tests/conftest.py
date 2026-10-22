@@ -23,6 +23,11 @@ def _isolated_project_root(tmp_path_factory):
     (root / "data").mkdir()
     config.PROJECT_ROOT = root
     config.invalidate_settings_cache()
+    # 引擎可能已在收集阶段按真实路径创建：必须丢弃后重建，并预先建表，
+    # 让直接操作数据库的测试不依赖某个 TestClient 先跑过 lifespan
+    db._engine = None
+    db.SessionLocal = None
+    db.init_db()
 
     yield root
 

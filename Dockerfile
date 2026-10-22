@@ -45,5 +45,7 @@ EXPOSE 8666
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8666/api/health', timeout=3)" || exit 1
 
-# [server] host/port from config.toml are bypassed on purpose: containers must bind 0.0.0.0
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8666"]
+# [server] host/port from config.toml are bypassed on purpose: containers must bind 0.0.0.0.
+# Open SSE streams never end on their own: without a graceful-shutdown cap uvicorn waits for
+# them forever and `docker stop` ends in SIGKILL before the app's shutdown cleanup runs.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8666 --timeout-graceful-shutdown 5"]
