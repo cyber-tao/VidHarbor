@@ -49,6 +49,10 @@ export const PLATFORMS = {
   other: { label: '其他', color: '#a1a1aa' },
 }
 
+// 支持下载与榜单的平台（顺序即各页面平台标签的顺序）
+export const PLATFORM_OPTIONS = ['bilibili', 'youtube', 'tiktok', 'douyin']
+  .map((id) => ({ id, label: PLATFORMS[id].label }))
+
 export function platformLabel(p) {
   return PLATFORMS[p]?.label ?? p
 }

@@ -1,6 +1,5 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import naive from 'naive-ui'
 import App from './App.vue'
 import { api } from './api.js'
 import { createAppRouter } from './router.js'
@@ -26,6 +25,5 @@ exchangeUrlToken().finally(() => {
   const app = createApp(App)
   app.use(createPinia())
   app.use(createAppRouter())
-  app.use(naive)
   app.mount('#app')
 })

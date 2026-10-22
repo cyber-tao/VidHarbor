@@ -3,18 +3,11 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import { api } from '../api.js'
-import { fmtCount, fmtDuration } from '../format.js'
+import { PLATFORM_OPTIONS as PLATFORM_TABS, fmtCount, fmtDuration } from '../format.js'
 import DownloadOptionsDialog from '../components/DownloadOptionsDialog.vue'
 
 const message = useMessage()
 const router = useRouter()
-
-const PLATFORM_TABS = [
-  { id: 'bilibili', label: '哔哩哔哩' },
-  { id: 'youtube', label: 'YouTube' },
-  { id: 'tiktok', label: 'TikTok' },
-  { id: 'douyin', label: '抖音' },
-]
 
 const platform = ref('bilibili')
 const category = ref('')

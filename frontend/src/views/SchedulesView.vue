@@ -4,7 +4,7 @@ import { onMounted, reactive, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useRoute } from 'vue-router'
 import { api } from '../api.js'
-import { fmtDateTime, platformLabel } from '../format.js'
+import { PLATFORM_OPTIONS as PLATFORM_TABS, fmtDateTime, platformLabel } from '../format.js'
 import { useEvents } from '../stores.js'
 
 const message = useMessage()
@@ -34,12 +34,6 @@ onMounted(() => {
 watch(() => events.statsVersion, () => load())
 
 const WEEKDAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-const PLATFORM_TABS = [
-  { id: 'bilibili', label: '哔哩哔哩' },
-  { id: 'youtube', label: 'YouTube' },
-  { id: 'tiktok', label: 'TikTok' },
-  { id: 'douyin', label: '抖音' },
-]
 
 // ---- 编辑器 ----
 const editor = reactive({

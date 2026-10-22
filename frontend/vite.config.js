@@ -9,7 +9,4 @@ export default defineConfig({
       '/api': { target: 'http://127.0.0.1:8666', changeOrigin: true },
     },
   },
-  build: {
-    chunkSizeWarningLimit: 1500,
-  },
 })

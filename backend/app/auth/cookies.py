@@ -18,16 +18,9 @@ import time
 from pathlib import Path
 from typing import NamedTuple
 
-from ..config import PLATFORMS, Settings
+from ..config import PLATFORM_NAMES, PLATFORMS, Settings
 
 log = logging.getLogger("vidharbor.auth.cookies")
-
-PLATFORM_NAMES = {
-    "bilibili": "哔哩哔哩",
-    "youtube": "YouTube",
-    "tiktok": "TikTok",
-    "douyin": "抖音",
-}
 
 # 各平台相关的 cookie 域（导入/上传时过滤，只保留本平台的 cookie）
 PLATFORM_DOMAINS: dict[str, tuple[str, ...]] = {
@@ -230,7 +223,7 @@ def status(settings: Settings) -> dict:
     out: dict = {}
     for p in PLATFORMS:
         path = cookie_path(settings, p)
-        entry: dict = {"platform": p, "name": PLATFORM_NAMES.get(p, p),
+        entry: dict = {"platform": p, "name": PLATFORM_NAMES[p],
                        "exists": path.exists()}
         if path.exists():
             st = path.stat()

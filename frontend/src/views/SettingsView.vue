@@ -3,6 +3,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import { api } from '../api.js'
+import { PLATFORM_OPTIONS } from '../format.js'
 
 const message = useMessage()
 const meta = ref(null)
@@ -14,11 +15,6 @@ const showKeys = reactive({ evil0ctal: false, yt: false })
 const keys = reactive({ evil0ctal: { set: false, clear: false }, yt: { set: false, clear: false } })
 // 加载时的表单快照：保存只提交改动过的字段，没动过的继续跟随 config.toml / 环境变量
 let saved = null
-
-const PLATFORMS = [
-  { id: 'bilibili', label: '哔哩哔哩' }, { id: 'youtube', label: 'YouTube' },
-  { id: 'tiktok', label: 'TikTok' }, { id: 'douyin', label: '抖音' },
-]
 
 const form = reactive({
   max_height: 1080, sub_langs: 'zh.*, en.*', audio_langs: '',
@@ -280,7 +276,7 @@ function closeQR() {
         <div class="space-y-1.5 sm:col-span-3">
           <span class="text-xs text-zinc-400">走代理的平台</span>
           <div class="flex flex-wrap gap-4">
-            <label v-for="pf in PLATFORMS" :key="pf.id" class="flex items-center gap-1.5 text-xs text-zinc-300">
+            <label v-for="pf in PLATFORM_OPTIONS" :key="pf.id" class="flex items-center gap-1.5 text-xs text-zinc-300">
               <input type="checkbox" :value="pf.id" v-model="form.proxyPlatforms" @change="dirty = true"
                 class="size-3.5 accent-indigo-500" />
               {{ pf.label }}

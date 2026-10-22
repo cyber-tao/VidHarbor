@@ -12,15 +12,13 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from ..config import Settings
+from ..config import PLATFORMS, Settings
 from ..models import DownloadTask, Subtitle, Tag, Video
 from ..naming import build_filename, build_relpath
 from .options import EffectiveOptions, equivalent_source_ids
 from .ytdlp import DownloadCancelled, RawDownload
 
 log = logging.getLogger("vidharbor.postprocess")
-
-KNOWN_PLATFORMS = {"youtube", "bilibili", "tiktok", "douyin"}
 
 # yt-dlp info 中只对本次下载有意义的数据：带签名会过期的地址、全部格式/分片清单、
 # 字幕与缩略图地址等。入库后没有用处，却占 raw_metadata 的绝大部分体积（YouTube 单条数百 KB）
@@ -229,10 +227,10 @@ def srt_to_vtt(content: str) -> str:
 
 
 def _resolve_platform(task: DownloadTask, info: dict) -> str:
-    if task.platform in KNOWN_PLATFORMS:
+    if task.platform in PLATFORMS:
         return task.platform
     key = str(info.get("extractor_key") or "").lower()
-    if key in KNOWN_PLATFORMS:
+    if key in PLATFORMS:
         return key
     return "other"
 

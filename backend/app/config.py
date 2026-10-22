@@ -42,7 +42,8 @@ def _resolve_db_filename(data_dir: Path) -> str:
 DEFAULT_TIMEZONE = "Asia/Shanghai"
 VIDEO_CODECS = ("h265", "h264")
 ENCODERS = ("auto", "libx265", "hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_videotoolbox")
-PLATFORMS = ("bilibili", "youtube", "tiktok", "douyin")
+PLATFORM_NAMES = {"bilibili": "哔哩哔哩", "youtube": "YouTube", "tiktok": "TikTok", "douyin": "抖音"}
+PLATFORMS = tuple(PLATFORM_NAMES)
 
 
 class LibraryCfg(BaseModel):

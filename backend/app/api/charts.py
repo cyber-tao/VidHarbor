@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 from ..charts import provider_for
 from ..charts.base import ChartError
+from ..config import PLATFORM_NAMES, PLATFORMS
 from ..db import get_sessionmaker
 from ..models import ChartCache, iso_utc, utcnow
 
@@ -26,12 +27,7 @@ def _as_utc(dt: datetime | None) -> datetime | None:
 
 @router.get("/api/charts")
 def list_platforms():
-    return {"platforms": [
-        {"id": "bilibili", "name": "哔哩哔哩"},
-        {"id": "youtube", "name": "YouTube"},
-        {"id": "tiktok", "name": "TikTok"},
-        {"id": "douyin", "name": "抖音"},
-    ]}
+    return {"platforms": [{"id": p, "name": PLATFORM_NAMES[p]} for p in PLATFORMS]}
 
 
 @router.get("/api/charts/{platform}")

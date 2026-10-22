@@ -1,9 +1,9 @@
 <script setup>
 import { onMounted, ref, watch } from 'vue'
-import { useMessage } from 'naive-ui'
+import { NPagination, useMessage } from 'naive-ui'
 import { useRoute } from 'vue-router'
 import { api } from '../api.js'
-import { fmtCount } from '../format.js'
+import { PLATFORMS, PLATFORM_OPTIONS, fmtCount } from '../format.js'
 import VideoCard from '../components/VideoCard.vue'
 
 const route = useRoute()
@@ -18,11 +18,8 @@ const platform = ref('')
 const loading = ref(false)
 const PLATFORM_FILTERS = [
   { id: '', label: '全部' },
-  { id: 'youtube', label: 'YouTube' },
-  { id: 'bilibili', label: '哔哩哔哩' },
-  { id: 'tiktok', label: 'TikTok' },
-  { id: 'douyin', label: '抖音' },
-  { id: 'other', label: '其他' },
+  ...PLATFORM_OPTIONS,
+  { id: 'other', label: PLATFORMS.other.label },
 ]
 
 // 标签聚合筛选（多选 = AND）
@@ -131,7 +128,7 @@ function toggleTag(name) {
         <VideoCard v-for="v in items" :key="v.id" :video="v" />
       </div>
       <div class="flex justify-center pt-2">
-        <n-pagination v-model:page="page" :page-count="Math.max(1, Math.ceil(total / pageSize))"
+        <NPagination v-model:page="page" :page-count="Math.max(1, Math.ceil(total / pageSize))"
           :page-size="pageSize" />
       </div>
     </template>

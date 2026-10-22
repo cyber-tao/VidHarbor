@@ -30,7 +30,12 @@ class TestReadOnly:
         assert client.get("/api/videos/99999").status_code == 404
 
     def test_charts_platform_list(self, client):
-        assert len(client.get("/api/charts").json()["platforms"]) == 4
+        assert client.get("/api/charts").json()["platforms"] == [
+            {"id": "bilibili", "name": "哔哩哔哩"},
+            {"id": "youtube", "name": "YouTube"},
+            {"id": "tiktok", "name": "TikTok"},
+            {"id": "douyin", "name": "抖音"},
+        ]
 
     def test_charts_unknown_platform(self, client):
         assert client.get("/api/charts/netflix").status_code == 404
