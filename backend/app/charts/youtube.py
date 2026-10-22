@@ -1,13 +1,14 @@
-"""YouTube 榜单：Trending 页已于 2025-07 下线，改用搜索（排序=热度 + 上传时间过滤）。
+"""YouTube 榜单：Trending 页已于 2025-07 下线，改用官方 Data API 或搜索结果。
 
-三级数据源（按优先级）：
+三级数据源（按优先级，上一级失败或结果过少时降级）：
 1. YouTube Data API v3（配置 api_key 后启用）：
    - 热门/音乐/游戏/科技/影视 → videos.list chart=mostPopular（真实热门榜，
      带点赞/播放/发布时间，单次 1 配额单位）；
    - 播客/自定义关键词 → search.list order=viewCount + publishedAfter 再
      videos.list 补全统计（单次约 101 配额单位，免费日配额个人够用）。
-2. InnerTube 搜索接口（免登录、支持翻页），服务端按 publishedTimeText 过滤周期。
-3. yt-dlp flat（无时间字段）。
+2. InnerTube 搜索接口（免登录、支持翻页，按相关度排序），服务端按 publishedTimeText
+   过滤周期。
+3. yt-dlp flat 提取普通搜索结果页（无时间字段，不按周期过滤）。
 """
 
 from __future__ import annotations

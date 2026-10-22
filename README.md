@@ -40,7 +40,7 @@ Runs on **Windows / Linux / macOS** — bare metal or **Docker** (x86-64 / ARM64
         │     └── Evil0ctal v5 fallback (Douyin / TikTok)
         ├── Post-processing: ffprobe → remux (-c copy) / HEVC transcode
         │   (hardware first: NVENC/QSV/AMF/VideoToolbox) → normalized naming
-        ├── Chart providers: Bilibili official API / YouTube (official or filter-based)
+        ├── Chart providers: Bilibili official API / YouTube (Data API or search)
         │   / Douyin hot-search + keyword search / TikTok hashtag
         ├── Scheduler: APScheduler (multi-chart combos, skip items already in library)
         ├── Login management: Bilibili QR / browser-cookie import / cookies.txt upload
@@ -64,7 +64,8 @@ Runs on **Windows / Linux / macOS** — bare metal or **Docker** (x86-64 / ARM64
   file path, technical info, subtitle viewer; clickable tags
 - **Schedules** — daily / weekly / interval / cron triggers; one job can combine multiple chart
   selections (platform × category × period × TopN); items already in library are skipped
-  automatically; run-now, enable/disable, last-run stats
+  automatically; run-now, enable/disable, last-run stats. The Douyin hot-search list holds
+  topics rather than videos, so schedule a Douyin keyword search instead
 - **Settings** — download defaults (quality / subtitle languages / audio-track languages),
   encoding (H.265/H.264, hardware-encoder detection display), **login management** (Bilibili
   QR code; browser import / cookies.txt upload per platform), Douyin fallback engine, storage
@@ -133,20 +134,16 @@ authentication and the port binds `0.0.0.0` (LAN reachable). If the network is n
 fully trusted, set in `.env`:
 
 ```bash
-TOKEN=<long random string>   # every API call except /api/health then requires the token
+TOKEN=<long random string>   # all API calls except /api/health and login then need the token
 BIND_IP=127.0.0.1            # bind the port to localhost only (default 0.0.0.0)
 ```
 
 With `TOKEN` set, open `http://<host>:8666/#token=<token>` once (or type the token when
 the page asks for it): the browser exchanges it for an HttpOnly session cookie, so the
 token never shows up in URLs or server access logs afterwards. Programmatic callers send
-the `X-Vidharbor-Token` header.
+the `X-Vidharbor-Token` header (`?token=` is no longer accepted, see *Upgrade Notes* below).
 
-> **Migration (v0.2.x)**: the API no longer accepts a `?token=` query parameter — switch
-> scripts to the `X-Vidharbor-Token` header. Old `/?token=…` bookmarks still work for the
-> first browser visit.
-
-- Data persists in bind mounts: `./data` (SQLite DB, cookies, logs) and `./library` (videos) —
+- Data persists in bind mounts: `./data` (SQLite DB, cookies) and `./library` (videos) —
   the same layout as a bare-metal install
 - `config.toml` is optional (most settings live in the web Settings page); container config
   can also be injected via `VIDHARBOR_<section>__<field>` env vars — priority:
@@ -201,16 +198,16 @@ Then open <http://127.0.0.1:8666>.
 ### Development
 
 ```bash
-# backend (auto-reload)
-cd backend && uv run uvicorn app.main:app --reload
+# backend (auto-reload; the graceful-shutdown cap keeps open SSE streams from blocking reloads)
+cd backend && uv run uvicorn app.main:app --reload --timeout-graceful-shutdown 5
 
 # frontend (Vite dev server, /api proxied automatically)
 cd frontend && npm run dev
 ```
 
-Run tests — 157 pytest cases covering naming sanitization, subtitle parsing, chart period
-parsing, format selectors, option resolution, encoder detection, cookie import and API
-smoke tests:
+Run tests — the pytest suite covers naming sanitization, subtitle parsing, chart providers,
+format selectors, option resolution, encoder detection, cookie import, access control,
+settings, the task queue / scheduler (dedup, concurrency, shutdown) and API smoke tests:
 
 ```bash
 cd backend && uv run pytest
@@ -239,8 +236,9 @@ WantedBy=default.target
 
 ## ⚙️ Configuration (Optional)
 
-Copy `config.example.toml` to `config.toml`. Fields marked **[Web]** can also be changed in
-the web **Settings** page (stored in the database, takes priority):
+Copy `config.example.toml` to `config.toml` — it is the reference for every option and its
+default. Fields marked **[Web]** can also be changed in the web **Settings** page (stored in
+the database, takes priority):
 
 | Option | Description |
 |---|---|
@@ -248,16 +246,24 @@ the web **Settings** page (stored in the database, takes priority):
 | `library.name_template` | Filename template: `platform uploader upload_date title id` |
 | `library.video_codec` [Web] | Target codec `h265` (default) / `h264` |
 | `library.hw_encoder` [Web] | HEVC encoder `auto` (hardware first) / `libx265` / `hevc_nvenc` … |
-| `download.concurrency` | Concurrent downloads (default 2, restart to apply) |
+| `library.transcode_concurrency` [Web] | Concurrent transcodes (default 1; extra jobs queue, remux takes no slot) |
+| `download.concurrency` [Web] | Concurrent downloads (default 2, applies immediately) |
+| `download.per_platform_concurrency` [Web] | Concurrent downloads per platform (default 2, eases rate limiting) |
 | `download.max_height` [Web] | Max resolution (default 1080, 0 = unlimited) |
 | `download.sub_langs` [Web] | Subtitle languages (yt-dlp regex) |
 | `download.audio_langs` [Web] | Audio-track language preference (ordered; empty = original) |
-| `download.cookies_file` | Global fallback cookies.txt (per-platform cookies → Login Management) |
-| `evil0ctal.*` [Web] | Douyin/TikTok fallback engine (base URL + API key) |
+| `download.cookies_file` | Global fallback cookies.txt — a server-side path, so not editable in the web UI (per-platform cookies → Login Management) |
+| `download.proxy` [Web] | Egress proxy (`http://host:port` / `socks5://host:port`) for downloads, charts and short-link expansion |
+| `download.proxy_platforms` [Web] | Platforms that use the proxy (`bilibili` / `youtube` / `tiktok` / `douyin`) |
+| `evil0ctal.*` [Web] | Douyin/TikTok fallback engine (enabled + base URL + API key) |
 | `youtube.api_key` [Web] | YouTube Data API v3 key — enables official trending charts |
 | `youtube.region_code` [Web] | Region for YouTube charts (US / JP / TW / HK …) |
 | `server.host` / `server.port` | Bind address (default `127.0.0.1:8666`) |
-| `scheduler.timezone` [Web] | Schedule timezone (default Asia/Shanghai) |
+| `scheduler.timezone` [Web] | Schedule timezone (IANA name, default Asia/Shanghai) |
+
+The Settings page saves only the fields you change; everything else keeps following
+`config.toml` / env vars. API keys are write-only: once saved they are never sent back to the
+browser (the page only shows whether a key is set) and can be cleared from the page.
 
 ### Login Management (cookies)
 
@@ -269,7 +275,9 @@ The web **Settings → Login Management** page maintains independent cookies per
 - **YouTube / TikTok / Douyin** — any of:
   1. **Import from browser**: log in to the site in a local browser first, then one-click
      import (server-side decryption; on Linux the system keyring must be available and the
-     browser must not use a master password; Safari on macOS only)
+     browser must not use a master password; Safari on macOS only). The server reads the
+     browser profile on its own machine, so this only works for bare-metal installs on the
+     same computer as the browser — under Docker, use option 2
   2. **Upload cookies.txt**: export with the
      [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc)
      extension, then upload
@@ -319,7 +327,7 @@ Each platform exposes different time dimensions; period options are rendered per
 | Platform | Periods | Source | Status |
 |---|---|---|---|
 | Bilibili | Composite (site + category) / 3-day / weekly (category) | `ranking/v2` + `ranking/region?day=3\|7` (official daily/monthly endpoints are dead); plus *Must-Watch Weekly* (needs QR login) and *Classics* | ✅ stable |
-| YouTube | Today / week / month | With API key: official Data API v3; otherwise search filters `sp=CAMSAggC/D/E` (sort by view count + upload date) via yt-dlp flat extraction | ✅ stable |
+| YouTube | Today / week / month | With API key: official Data API v3 (most-popular charts; podcasts / keywords via search sorted by views); without a key or on failure: InnerTube search (relevance order, filtered by publish time), then yt-dlp search extraction (no period filter) | ✅ stable |
 | Douyin | Real-time (no period) + keyword search | Hot search: official API (sub-chart params are ignored by Douyin, single list only); search: hot words or custom keywords → official search API (in-app cookies + Evil0ctal `/tools/sign`), returns real videos, selectable for batch download | ✅ search needs cookies + signing service |
 | TikTok | Any time (no period) | No public charts; hashtag pages via official API (in-app cookies + Evil0ctal `/tools/sign` native X-Bogus/X-Gnarly signatures), returns real videos selectable for download | ✅ needs cookies + signing service |
 
@@ -340,17 +348,32 @@ vidharbor/
 │   │   │                   # encoders, postprocess, urlnorm
 │   │   ├── scheduler.py    # APScheduler-driven scheduled downloads
 │   │   └── …               # config, db, models, events, logging, naming
-│   ├── tests/              # 157 pytest cases
+│   ├── tests/              # pytest suite
 │   └── run.py              # cross-platform entry point
 ├── frontend/               # Vue 3 + Vite + Tailwind + Naive UI + ECharts + Pinia
 ├── config.example.toml     # copy to config.toml (git-ignored)
 ├── Dockerfile              # multi-stage image: frontend build + FastAPI/ffmpeg runtime
 ├── docker-compose.yml      # Docker deployment (bind-mounts ./data and ./library)
 ├── deploy.sh / deploy.ps1  # one-click deploy: Linux/macOS/WSL/Git Bash | Windows PowerShell
-├── data/                   # runtime: SQLite DB, cookies, logs (git-ignored)
+├── data/                   # runtime: SQLite DB, cookies (git-ignored)
 ├── library/                # your video library (git-ignored)
 └── tools/                  # local Evil0ctal fallback clone (git-ignored)
 ```
+
+## 🔄 Upgrade Notes (v0.2.x)
+
+The web UI and deploy scripts are already updated; only scripts that call the HTTP API
+directly need changes:
+
+- **Access token**: the `?token=` query parameter is no longer accepted — send the
+  `X-Vidharbor-Token` header. Old `/?token=…` bookmarks still work for the first browser visit.
+- **`PUT /api/settings`** stores only the fields in the request body; a `null` value removes a
+  saved override (the field falls back to `config.toml` / env vars).
+- **`GET /api/settings`** no longer returns API keys — it reports `api_key_set: true/false`
+  instead.
+- **`GET /api/stats`** no longer includes `recent_tasks` — use `GET /api/tasks`.
+- **Timestamps** in API responses now carry an explicit UTC offset
+  (`2026-10-22T08:00:00.000+00:00`); they used to be naive UTC strings.
 
 ## ❓ FAQ
 
@@ -365,7 +388,7 @@ vidharbor/
   login; use QR login in Settings.
 - **"Import from browser" fails** — make sure the browser is actually logged in to the site;
   on Linux the keyring must be available (`secretstorage`); master-password-protected browsers
-  cannot be decrypted.
+  cannot be decrypted. It cannot work inside Docker (no browser there) — upload cookies.txt.
 - **Douyin tasks fail with "fallback service unreachable"** — start Evil0ctal as described
   above (including the browser container) and verify the URL and API key in Settings.
 - **Scheduled jobs didn't run** — check the job is *enabled*, see the log drawer and the Tasks

@@ -20,7 +20,7 @@ yarn-error.log*
 pnpm-debug.log*
 
 # ===== Runtime data (never commit) =====
-# SQLite DB, per-platform cookies, server logs
+# SQLite DB, per-platform cookies
 data/
 # Downloaded videos, thumbnails, transcode temp
 library/

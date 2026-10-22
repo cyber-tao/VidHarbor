@@ -25,8 +25,9 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       # Optional access token: when set (non-empty), every /api call except
-      # /api/health requires it (X-Vidharbor-Token header, or the browser session
-      # cookie obtained by opening http://<host>:<port>/#token=<token> once).
+      # /api/health and the /api/auth/session login endpoint requires it
+      # (X-Vidharbor-Token header, or the browser session cookie obtained by
+      # opening http://<host>:<port>/#token=<token> once).
       VIDHARBOR_TOKEN: ${TOKEN:-}
       # Evil0ctal fallback engine. Standalone default points at a service on the
       # host (Docker Desktop resolves host.docker.internal; Linux needs the
@@ -41,7 +42,7 @@ services:
       VIDHARBOR_DOWNLOAD__PROXY: ${PROXY:-}
       VIDHARBOR_DOWNLOAD__PROXY_PLATFORMS: ${PROXY_PLATFORMS:-}
     volumes:
-      # SQLite DB + per-platform cookies + logs
+      # SQLite DB + per-platform cookies
       - ./data:/app/data
       # Video library (downloads, thumbnails, transcode temp)
       - ./library:/app/library

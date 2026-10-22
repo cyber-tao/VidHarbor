@@ -1,5 +1,6 @@
 # VidHarbor 配置。复制为 config.toml 后修改；config.toml 被 git 忽略。
 # 标注 [Web] 的字段也可在 Web 控制台「设置」页修改（保存到数据库，优先生效）。
+# 设置页只保存改动过的字段，没改过的字段继续跟随本文件 / 环境变量。
 
 [library]
 # 视频库根目录（留空则使用 <项目>/library）
@@ -14,9 +15,9 @@ hw_encoder = "auto"
 transcode_concurrency = 1
 
 [download]
-# 同时下载任务数（保存后即时生效）
+# [Web] 同时下载任务数（保存后即时生效）
 concurrency = 2
-# 同一平台同时下载的任务数上限（防风控/限速）
+# [Web] 同一平台同时下载的任务数上限（防风控/限速）
 per_platform_concurrency = 2
 # [Web] 字幕语言（yt-dlp 正则语法），auto 字幕也会尝试
 sub_langs = ["^zh(-CN|-Hans|-Hant|-TW|-HK)?$", "^en(-US|-GB)?$"]
@@ -24,11 +25,12 @@ sub_langs = ["^zh(-CN|-Hans|-Hant|-TW|-HK)?$", "^en(-US|-GB)?$"]
 max_height = 1080
 # [Web] 音轨语言偏好（按顺序），多音轨视频只下载一条首选音轨；空 = 原声/默认
 audio_langs = []
-# 全局兜底 cookies.txt（Netscape 格式）。平台专属 cookies 建议在「设置 → 登录管理」
-# 扫码/导入/上传（存于 data/cookies/{platform}.txt，优先生效）。
+# 全局兜底 cookies.txt（Netscape 格式，服务器上的文件路径，不能在设置页修改）。
+# 平台专属 cookies 建议在「设置 → 登录管理」扫码/导入/上传
+# （存于 data/cookies/{platform}.txt，优先生效）。
 cookies_file = ""
 # [Web] 出口代理（http://host:port 或 socks5://host:port），只对 proxy_platforms
-# 勾选的平台生效（下载与榜单请求）。Docker 部署访问宿主机代理写
+# 勾选的平台生效（下载、榜单请求与短链展开）。Docker 部署访问宿主机代理写
 # http://host.docker.internal:7890（compose 亦可用 PROXY / PROXY_PLATFORMS 注入）
 proxy = ""
 # [Web] 走代理的平台（bilibili / youtube / tiktok / douyin 任选）
@@ -43,7 +45,7 @@ api_key = ""
 
 [youtube]
 # [Web] YouTube Data API v3 密钥（Google Cloud Console 免费创建）。
-# 配置后榜单优先走官方 API：真实热门榜 + 点赞数/发布时间；留空则走免登录通道。
+# 配置后榜单优先走官方 API：真实热门榜 + 点赞数/发布时间；留空则走免登录的搜索接口。
 api_key = ""
 # [Web] 地区代码，影响热门榜内容（US / JP / TW / HK 等）
 region_code = "US"
@@ -53,5 +55,5 @@ host = "127.0.0.1"
 port = 8666
 
 [scheduler]
-# [Web] 定时任务时区
+# [Web] 定时任务时区（IANA 名称，如 Asia/Shanghai、UTC）
 timezone = "Asia/Shanghai"
