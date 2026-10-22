@@ -349,15 +349,23 @@ function Sync-Evil0ctalSettings([string]$port, [string]$key) {
     $evil = $cur.settings.evil0ctal
     $patch = @{}
     if ($evil.base_url -ne "http://api:8000") { $patch.base_url = "http://api:8000" }
-    # A manual EVIL0CTAL_API_KEY in .env means the user manages the key themselves
-    if ($key -and (Get-EnvValue "EVIL0CTAL_API_KEY" "")) { $key = "" }
-    if ($key -and $evil.api_key -ne $key) { $patch.api_key = $key }
+    # Settings never echo the API key, so there is nothing to compare: write the auto key
+    # (idempotent). A manual EVIL0CTAL_API_KEY in .env means the user manages the key:
+    # null drops any key saved through the Settings page so the environment value applies.
+    $keyNote = ""
+    if (Get-EnvValue "EVIL0CTAL_API_KEY" "") {
+        $patch.api_key = $null
+        $keyNote = ", using the API key from .env"
+    } elseif ($key) {
+        $patch.api_key = $key
+        $keyNote = ", API key written"
+    }
     if ($patch.Count -eq 0) { return }
     try {
         $body = @{ evil0ctal = $patch } | ConvertTo-Json
         Invoke-RestMethod -Method Put -Uri $uri -Headers $headers `
             -ContentType "application/json" -Body $body -TimeoutSec 5 | Out-Null
-        Info "Fallback engine settings synced (URL=http://api:8000$(if ($key) {', API key updated'}); effective within ~1 min)"
+        Info "Fallback engine settings synced (URL=http://api:8000$keyNote; effective within ~1 min)"
     } catch {
         Warn "Could not sync the fallback engine settings - set them in VidHarbor Settings"
     }

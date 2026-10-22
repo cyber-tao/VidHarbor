@@ -172,10 +172,12 @@ def _load_file() -> dict:
     return {}
 
 
-# Web 设置页可修改的字段白名单（两级路径）
+SECTION_NAMES = ("library", "download", "evil0ctal", "youtube", "server", "scheduler")
+
+# Web 设置页可修改的字段白名单（两级路径）。cookies_file 是服务器上的文件路径，
+# 不允许远程客户端改写（只在 config.toml / 环境变量里配置）
 EDITABLE_FIELDS: set[tuple[str, str]] = {
     ("download", "sub_langs"),
-    ("download", "cookies_file"),
     ("download", "max_height"),
     ("download", "audio_langs"),
     ("download", "concurrency"),
@@ -191,6 +193,12 @@ EDITABLE_FIELDS: set[tuple[str, str]] = {
     ("youtube", "api_key"),
     ("youtube", "region_code"),
     ("scheduler", "timezone"),
+}
+
+# 只写字段：GET /api/settings 只返回"是否已设置"，不回显明文
+SECRET_FIELDS: set[tuple[str, str]] = {
+    ("evil0ctal", "api_key"),
+    ("youtube", "api_key"),
 }
 
 
@@ -252,17 +260,30 @@ def _load_env_overrides() -> dict:
     return out
 
 
+def editable_overlay(overlay: dict) -> dict:
+    """只保留覆盖层中 EDITABLE_FIELDS 内的字段（白名单收紧后，旧数据里的字段不再生效）。"""
+    out: dict = {}
+    for section, fields in overlay.items():
+        if isinstance(fields, dict):
+            kept = {k: v for k, v in fields.items() if (section, k) in EDITABLE_FIELDS}
+            if kept:
+                out[section] = kept
+    return out
+
+
+def build_settings(overlay: dict | None = None) -> Settings:
+    """config.toml < 环境变量 < Web 设置页覆盖层（只取 EDITABLE_FIELDS）→ Settings。
+
+    读取（get_settings）与设置页写入前的校验共用这一条合并路径；校验失败抛 ValidationError。
+    """
+    merged = _deep_merge(_deep_merge(_load_file(), _load_env_overrides()),
+                         editable_overlay(overlay or {}))
+    return Settings(**{n: merged[n] for n in SECTION_NAMES if isinstance(merged.get(n), dict)})
+
+
 @lru_cache
 def get_settings() -> Settings:
-    raw = _load_file()
-    env = _load_env_overrides()
-    overlay = _load_overrides()
-    merged = _deep_merge(_deep_merge(raw, env), overlay)
-    sections = {}
-    for name in ("library", "download", "evil0ctal", "youtube", "server", "scheduler"):
-        if isinstance(merged.get(name), dict):
-            sections[name] = merged[name]
-    return Settings(**sections)
+    return build_settings(_load_overrides())
 
 
 def invalidate_settings_cache() -> None:

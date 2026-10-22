@@ -71,6 +71,22 @@ def test_db_settings_take_priority_over_env(isolated_root, monkeypatch):
     assert s.evil0ctal.base_url == "http://db-wins:8000"
 
 
+def test_overlay_ignores_non_editable_fields(isolated_root):
+    # cookies_file 已移出 Web 可编辑白名单：库里遗留的旧值不再生效
+    db = isolated_root / "data" / "vidharbor.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE app_settings (id INTEGER PRIMARY KEY, data TEXT)")
+    conn.execute(
+        'INSERT INTO app_settings (id, data) VALUES (1, '
+        '\'{"download": {"cookies_file": "/etc/passwd", "max_height": 720}}\')'
+    )
+    conn.commit()
+    conn.close()
+    s = config.get_settings()
+    assert s.download.cookies_file == ""
+    assert s.download.max_height == 720
+
+
 def test_proxy_defaults(isolated_root):
     s = config.get_settings()
     assert s.download.proxy == ""

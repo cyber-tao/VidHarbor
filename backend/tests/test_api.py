@@ -97,6 +97,64 @@ class TestSettingsAPI:
         assert client.get("/api/settings").json()["settings"]["download"]["max_height"] == expected
 
 
+class TestSettingsWritePath:
+    """设置页只存改动过的字段、null 删除覆盖项、密钥只写不读、cookies_file 不可远程修改。"""
+
+    @staticmethod
+    def _overlay() -> dict:
+        import json as _json
+
+        from app.db import get_sessionmaker
+        from app.models import AppSetting
+
+        with get_sessionmaker()() as s:
+            row = s.get(AppSetting, 1)
+            return _json.loads(row.data) if row is not None and row.data else {}
+
+    def test_only_changed_field_stored_and_null_reverts(self, client, restore_settings_overlay):
+        before = self._overlay()
+        assert client.put("/api/settings", json={"download": {"max_height": 720}}).status_code == 200
+        after = self._overlay()
+        expected = dict(before, download={**before.get("download", {}), "max_height": 720})
+        assert after == expected  # 只多了这一项，别的字段没有被冻结进覆盖层
+
+        r = client.put("/api/settings", json={"download": {"max_height": None}})
+        assert r.status_code == 200
+        assert "max_height" not in self._overlay().get("download", {})
+        assert r.json()["settings"]["download"]["max_height"] == 1080  # 回落到默认值
+
+    def test_env_value_not_frozen_by_saving_other_fields(self, client, monkeypatch,
+                                                         restore_settings_overlay):
+        from app.config import invalidate_settings_cache
+
+        monkeypatch.setenv("VIDHARBOR_DOWNLOAD__PROXY", "http://env-proxy:7890")
+        invalidate_settings_cache()
+        try:
+            assert client.put("/api/settings", json={"download": {"max_height": 480}}).status_code == 200
+            monkeypatch.setenv("VIDHARBOR_DOWNLOAD__PROXY", "http://env-proxy-2:7890")
+            invalidate_settings_cache()
+            proxy = client.get("/api/settings").json()["settings"]["download"]["proxy"]
+            assert proxy == "http://env-proxy-2:7890"
+        finally:
+            monkeypatch.delenv("VIDHARBOR_DOWNLOAD__PROXY")
+            invalidate_settings_cache()
+
+    def test_api_keys_are_write_only(self, client, restore_settings_overlay):
+        from app.config import get_settings
+
+        r = client.put("/api/settings", json={"youtube": {"api_key": "AIzaSECRET123"}})
+        assert r.status_code == 200 and "AIzaSECRET123" not in r.text
+        body = client.get("/api/settings")
+        assert "AIzaSECRET123" not in body.text
+        youtube = body.json()["settings"]["youtube"]
+        assert youtube["api_key_set"] is True and "api_key" not in youtube
+        assert get_settings().youtube.api_key == "AIzaSECRET123"  # 生效但不回显
+
+    def test_cookies_file_not_editable(self, client):
+        r = client.put("/api/settings", json={"download": {"cookies_file": "/etc/passwd"}})
+        assert r.status_code == 400
+
+
 class TestTagsAPI:
     def test_tags_shape(self, client):
         res = client.get("/api/tags").json()

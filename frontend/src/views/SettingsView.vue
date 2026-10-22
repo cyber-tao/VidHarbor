@@ -5,12 +5,15 @@ import { useMessage } from 'naive-ui'
 import { api } from '../api.js'
 
 const message = useMessage()
-const settings = ref(null)
 const meta = ref(null)
 const saving = ref(false)
 const dirty = ref(false)
-// API Key 掩码显示开关（默认隐藏，防止旁人窥屏）
+// 新输入的 API Key 显示开关（默认隐藏，防止旁人窥屏）
 const showKeys = reactive({ evil0ctal: false, yt: false })
+// API Key 只写不读：服务端只返回是否已设置；输入新值才提交，「清除」提交空串
+const keys = reactive({ evil0ctal: { set: false, clear: false }, yt: { set: false, clear: false } })
+// 加载时的表单快照：保存只提交改动过的字段，没动过的继续跟随 config.toml / 环境变量
+let saved = null
 
 const PLATFORMS = [
   { id: 'bilibili', label: '哔哩哔哩' }, { id: 'youtube', label: 'YouTube' },
@@ -32,10 +35,55 @@ const HEIGHTS = [
   { v: 1080, label: '1080p（推荐）' }, { v: 720, label: '720p' }, { v: 480, label: '480p' }, { v: 360, label: '360p' },
 ]
 
+function splitList(text) {
+  return text.split(/[,，]/).map((s) => s.trim()).filter(Boolean)
+}
+
+function toPayload() {
+  return {
+    download: {
+      max_height: Number(form.max_height),
+      concurrency: Number(form.concurrency),
+      per_platform_concurrency: Number(form.per_platform),
+      sub_langs: splitList(form.sub_langs),
+      audio_langs: splitList(form.audio_langs),
+      proxy: form.proxy.trim(),
+      proxy_platforms: [...form.proxyPlatforms],
+    },
+    library: { video_codec: form.video_codec, hw_encoder: form.hw_encoder, transcode_concurrency: Number(form.transcode) },
+    evil0ctal: { enabled: form.evil0ctal_enabled, base_url: form.evil0ctal_base_url.trim() },
+    youtube: { region_code: (form.yt_region || 'US').trim().toUpperCase() },
+    scheduler: { timezone: form.timezone.trim() },
+  }
+}
+
+function changedFields(current, original) {
+  const patch = {}
+  for (const [section, fields] of Object.entries(current)) {
+    for (const [key, value] of Object.entries(fields)) {
+      if (JSON.stringify(value) !== JSON.stringify(original[section][key])) {
+        (patch[section] ??= {})[key] = value
+      }
+    }
+  }
+  return patch
+}
+
+function keyPlaceholder(k, example) {
+  if (k.clear) return '保存后清除'
+  return k.set ? '已设置（留空则保持不变）' : example
+}
+
+function clearKey(which) {
+  keys[which].clear = true
+  if (which === 'evil0ctal') form.evil0ctal_api_key = ''
+  else form.yt_api_key = ''
+  dirty.value = true
+}
+
 async function load() {
   try {
     const res = await api.getSettings()
-    settings.value = res.settings
     meta.value = res.meta
     const d = res.settings
     form.max_height = d.download.max_height
@@ -50,10 +98,13 @@ async function load() {
     form.hw_encoder = d.library.hw_encoder
     form.evil0ctal_enabled = d.evil0ctal.enabled
     form.evil0ctal_base_url = d.evil0ctal.base_url
-    form.evil0ctal_api_key = d.evil0ctal.api_key
-    form.yt_api_key = d.youtube.api_key
+    form.evil0ctal_api_key = ''
+    form.yt_api_key = ''
+    keys.evil0ctal = { set: d.evil0ctal.api_key_set, clear: false }
+    keys.yt = { set: d.youtube.api_key_set, clear: false }
     form.yt_region = d.youtube.region_code
     form.timezone = d.scheduler.timezone
+    saved = toPayload()
     dirty.value = false
   } catch (e) {
     message.error(e.message)
@@ -62,23 +113,18 @@ async function load() {
 onMounted(() => { load(); loadCookies() })
 
 async function save() {
+  const patch = changedFields(toPayload(), saved)
+  const evilKey = form.evil0ctal_api_key.trim()
+  if (evilKey || keys.evil0ctal.clear) (patch.evil0ctal ??= {}).api_key = evilKey
+  const ytKey = form.yt_api_key.trim()
+  if (ytKey || keys.yt.clear) (patch.youtube ??= {}).api_key = ytKey
+  if (!Object.keys(patch).length) {
+    dirty.value = false
+    return
+  }
   saving.value = true
   try {
-    await api.putSettings({
-      download: {
-        max_height: Number(form.max_height),
-        concurrency: Number(form.concurrency),
-        per_platform_concurrency: Number(form.per_platform),
-        sub_langs: form.sub_langs.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
-        audio_langs: form.audio_langs.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
-        proxy: form.proxy.trim(),
-        proxy_platforms: [...form.proxyPlatforms],
-      },
-      library: { video_codec: form.video_codec, hw_encoder: form.hw_encoder, transcode_concurrency: Number(form.transcode) },
-      evil0ctal: { enabled: form.evil0ctal_enabled, base_url: form.evil0ctal_base_url, api_key: form.evil0ctal_api_key.trim() },
-      youtube: { api_key: form.yt_api_key.trim(), region_code: (form.yt_region || 'US').trim().toUpperCase() },
-      scheduler: { timezone: form.timezone },
-    })
+    await api.putSettings(patch)
     message.success('设置已保存')
     dirty.value = false
     load()
@@ -362,7 +408,8 @@ function closeQR() {
         <label class="mt-3 block space-y-1.5">
           <span class="text-xs text-zinc-400">API Key</span>
           <span class="relative block">
-            <input v-model="form.evil0ctal_api_key" @input="dirty = true" placeholder="dtk_..."
+            <input v-model="form.evil0ctal_api_key" @input="dirty = true; keys.evil0ctal.clear = false"
+              :placeholder="keyPlaceholder(keys.evil0ctal, 'dtk_...')"
               :type="showKeys.evil0ctal ? 'text' : 'password'" autocomplete="off" spellcheck="false"
               class="w-full rounded-lg border border-zinc-700 bg-zinc-950 py-1.5 pl-2.5 pr-12 font-mono text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
             <button type="button" @click="showKeys.evil0ctal = !showKeys.evil0ctal"
@@ -372,6 +419,8 @@ function closeQR() {
           </span>
           <span class="block text-[11px] leading-4 text-zinc-500">
             在服务控制台 /api-keys 创建，勾选 douyin:read 与 tiktok:read；部署方法见 README。
+            <button v-if="keys.evil0ctal.set && !keys.evil0ctal.clear" type="button" @click.prevent="clearKey('evil0ctal')"
+              class="ml-1 text-zinc-500 underline hover:text-red-300">清除已保存的 Key</button>
           </span>
         </label>
       </div>
@@ -386,7 +435,8 @@ function closeQR() {
         <label class="block space-y-1.5">
           <span class="text-xs text-zinc-400">API Key</span>
           <span class="relative block">
-            <input v-model="form.yt_api_key" @input="dirty = true" placeholder="AIza..."
+            <input v-model="form.yt_api_key" @input="dirty = true; keys.yt.clear = false"
+              :placeholder="keyPlaceholder(keys.yt, 'AIza...')"
               :type="showKeys.yt ? 'text' : 'password'" autocomplete="off" spellcheck="false"
               class="w-full rounded-lg border border-zinc-700 bg-zinc-950 py-1.5 pl-2.5 pr-12 font-mono text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
             <button type="button" @click="showKeys.yt = !showKeys.yt"
@@ -394,6 +444,8 @@ function closeQR() {
               {{ showKeys.yt ? '隐藏' : '显示' }}
             </button>
           </span>
+          <button v-if="keys.yt.set && !keys.yt.clear" type="button" @click.prevent="clearKey('yt')"
+            class="text-[11px] text-zinc-500 underline hover:text-red-300">清除已保存的 Key</button>
         </label>
         <label class="mt-3 block space-y-1.5">
           <span class="text-xs text-zinc-400">地区代码（影响热门榜内容，如 US / JP / TW / HK）</span>

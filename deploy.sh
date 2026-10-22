@@ -335,7 +335,7 @@ ensure_dtk_apikey() {
 
 # 同步兜底引擎设置到 VidHarbor（地址 → 容器网络；API Key → 自动创建的那把；仅在有差异时写入）
 sync_evil0ctal_settings() {
-  local port="$1" key="${2:-}" url cur cur_url cur_key payload resp code token i
+  local port="$1" key="${2:-}" url cur cur_url payload resp code token i key_note=""
   local -a auth=()
   url="http://127.0.0.1:${port}/api/settings"
   # .env 设置了 TOKEN 时 /api 需要鉴权
@@ -358,19 +358,21 @@ sync_evil0ctal_settings() {
   done
   [[ -n "$cur" ]] || { warn "VidHarbor API 未就绪，跳过兜底引擎同步"; return 0; }
   cur_url="$(printf '%s' "$cur" | grep -o '"base_url": *"[^"]*"' | head -1 | sed 's/.*: *"//;s/"$//')"
-  # settings JSON 中第一个 api_key 字段属于 evil0ctal（download/library 段没有）
-  cur_key="$(printf '%s' "$cur" | grep -o '"api_key": *"[^"]*"' | head -1 | sed 's/.*: *"//;s/"$//')"
-  # 用户在 .env 手动指定 EVIL0CTAL_API_KEY 时视为手动管理，自动同步不覆盖 key
-  [[ -n "$(env_val EVIL0CTAL_API_KEY '')" ]] && key=""
   payload=""
   [[ "$cur_url" == "http://api:8000" ]] || payload='"base_url":"http://api:8000"'
-  if [[ -n "$key" && "$cur_key" != "$key" ]]; then
+  # 设置页的 API Key 只写不读，无法比对：有自动 Key 就幂等写入。
+  # .env 手动指定 EVIL0CTAL_API_KEY 时视为手动管理：写 null 删掉设置页里的 Key，让环境变量生效
+  if [[ -n "$(env_val EVIL0CTAL_API_KEY '')" ]]; then
+    key_note="，改用 .env 中的 API Key"
+    payload="${payload:+$payload,}\"api_key\":null"
+  elif [[ -n "$key" ]]; then
+    key_note="，API Key 已写入"
     payload="${payload:+$payload,}\"api_key\":\"$key\""
   fi
   [[ -n "$payload" ]] || return 0
   if curl -sf ${auth[@]+"${auth[@]}"} -X PUT "$url" -H 'content-type: application/json' \
        -d "{\"evil0ctal\":{$payload}}" >/dev/null 2>&1; then
-    info "兜底引擎设置已同步（地址=http://api:8000${key:+，API Key 已更新}，约 1 分钟内生效）"
+    info "兜底引擎设置已同步（地址=http://api:8000${key_note}，约 1 分钟内生效）"
   else
     warn "兜底引擎设置同步失败 —— 请在 VidHarbor 设置页手动填写地址与 API Key"
   fi

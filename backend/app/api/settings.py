@@ -1,4 +1,4 @@
-"""设置 API：读取生效配置（config.toml + DB 覆盖）与元信息；Web 保存覆盖值。"""
+"""设置 API：读取生效配置（config.toml < 环境变量 < 设置页覆盖层）与元信息；Web 保存覆盖值。"""
 from __future__ import annotations
 
 import json
@@ -10,7 +10,10 @@ from pydantic import BaseModel, Field
 from ..config import (
     EDITABLE_FIELDS,
     ENCODERS,
+    SECRET_FIELDS,
     VIDEO_CODECS,
+    build_settings,
+    editable_overlay,
     get_settings,
     invalidate_settings_cache,
     parse_timezone,
@@ -25,36 +28,11 @@ router = APIRouter()
 
 
 def _effective_dict() -> dict:
-    s = get_settings()
-    return {
-        "download": {
-            "concurrency": s.download.concurrency,
-            "per_platform_concurrency": s.download.per_platform_concurrency,
-            "sub_langs": list(s.download.sub_langs),
-            "audio_langs": list(s.download.audio_langs),
-            "max_height": s.download.max_height,
-            "cookies_file": s.download.cookies_file,
-            "proxy": s.download.proxy,
-            "proxy_platforms": list(s.download.proxy_platforms),
-        },
-        "library": {
-            "video_codec": s.library.video_codec,
-            "hw_encoder": s.library.hw_encoder,
-            "transcode_concurrency": s.library.transcode_concurrency,
-            "name_template": s.library.name_template,
-        },
-        "evil0ctal": {
-            "enabled": s.evil0ctal.enabled,
-            "base_url": s.evil0ctal.base_url,
-            "api_key": s.evil0ctal.api_key,
-        },
-        "youtube": {
-            "api_key": s.youtube.api_key,
-            "region_code": s.youtube.region_code,
-        },
-        "scheduler": {"timezone": s.scheduler.timezone},
-        "server": {"host": s.server.host, "port": s.server.port},
-    }
+    """生效配置；密钥只写不读，只返回 <field>_set，不让任何能打开页面的人读走。"""
+    data = get_settings().model_dump()
+    for section, key in SECRET_FIELDS:
+        data[section][f"{key}_set"] = bool(data[section].pop(key))
+    return data
 
 
 @router.get("/api/settings")
@@ -76,6 +54,8 @@ def read_settings():
 
 
 class SettingsUpdate(BaseModel):
+    """各段只放要修改的字段；值为 null 表示删除该覆盖项（回落到 config.toml / 环境变量）。"""
+
     model_config = {"extra": "forbid"}  # 未知 section 直接 422
 
     download: dict = Field(default_factory=dict)
@@ -85,27 +65,28 @@ class SettingsUpdate(BaseModel):
     scheduler: dict = Field(default_factory=dict)
 
 
-def _merge_overlay(current: dict, patch: dict) -> dict:
-    out = json.loads(json.dumps(current)) if current else {}
-    changed: list[str] = []
+def _apply_patch(current: dict, patch: dict) -> dict:
+    out = editable_overlay(current)
     for section, fields in patch.items():
-        if not isinstance(fields, dict):
-            continue
         for key, value in fields.items():
             if (section, key) not in EDITABLE_FIELDS:
                 raise HTTPException(status_code=400, detail=f"字段不可修改: {section}.{key}")
-            out.setdefault(section, {})
-            out[section][key] = value
-            changed.append(f"{section}.{key}")
+            if value is None:
+                out.get(section, {}).pop(key, None)
+            else:
+                out.setdefault(section, {})[key] = value
+        if section in out and not out[section]:
+            del out[section]
     return out
 
 
 @router.put("/api/settings")
 def update_settings(req: SettingsUpdate, request: Request):
     patch = {k: v for k, v in req.model_dump().items() if v}
-    if "timezone" in patch.get("scheduler", {}):
+    timezone = patch.get("scheduler", {}).get("timezone")
+    if timezone is not None:
         try:
-            parse_timezone(str(patch["scheduler"]["timezone"]))
+            parse_timezone(str(timezone))
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
     old_timezone = get_settings().scheduler.timezone
@@ -113,23 +94,16 @@ def update_settings(req: SettingsUpdate, request: Request):
     with sm() as session:
         row = session.get(AppSetting, 1)
         current = json.loads(row.data) if (row and row.data) else {}
-        merged = _merge_overlay(current, patch)
-        # 先校验整体能构造出合法 Settings，再落库
-        from ..config import _load_file, _deep_merge
-        raw = _deep_merge(_load_file(), merged)
+        overlay = _apply_patch(current, patch)
         try:
-            from ..config import Settings as _S
-            sections = {n: raw[n] for n in ("library", "download", "evil0ctal", "youtube",
-                                            "server", "scheduler")
-                        if isinstance(raw.get(n), dict)}
-            _S(**sections)
+            build_settings(overlay)  # 先确认合并后能构造出合法配置，再落库
         except Exception as e:  # noqa: BLE001
             raise HTTPException(status_code=400, detail=f"配置校验失败: {e}") from e
+        data = json.dumps(overlay, ensure_ascii=False)
         if row is None:
-            row = AppSetting(id=1, data=json.dumps(merged, ensure_ascii=False))
-            session.add(row)
+            session.add(AppSetting(id=1, data=data))
         else:
-            row.data = json.dumps(merged, ensure_ascii=False)
+            row.data = data
         session.commit()
     invalidate_settings_cache()
     settings = get_settings()
