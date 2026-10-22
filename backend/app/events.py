@@ -21,7 +21,6 @@ class EventBus:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._lock = threading.Lock()
         self.logs: deque[dict] = deque(maxlen=log_capacity)
-        self.stats_dirty = threading.Event()
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
@@ -33,7 +32,6 @@ class EventBus:
         self._dispatch({"type": type_, "data": data, "ts": time.time()})
 
     def mark_stats_dirty(self) -> None:
-        self.stats_dirty.set()
         self._dispatch({"type": "stats_dirty", "data": None, "ts": time.time()})
 
     def _dispatch(self, event: dict) -> None:

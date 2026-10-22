@@ -155,7 +155,6 @@ def ensure_mp4(
     from .encoders import ENCODER_ARGS, detect_hevc_encoder
 
     probe = run_ffprobe(src)
-    streams = probe.get("streams") or []
     v = _first_stream(probe, "video")
     a = _first_stream(probe, "audio")
     if v is None:

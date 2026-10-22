@@ -7,14 +7,13 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from datetime import datetime, timezone as dt_timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from .charts import provider_for
-from .config import get_settings, local_timezone
+from .config import local_timezone
 from .db import get_sessionmaker
 from .downloader.engine import TaskQueue, dedup_key, detect_platform, task_creation
 from .downloader.options import source_id_candidates

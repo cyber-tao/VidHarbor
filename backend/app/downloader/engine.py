@@ -122,15 +122,6 @@ class TaskQueue:
         log.info("下载队列就绪（全局并发=%d，每平台并发=%d）",
                  self.settings.download.concurrency,
                  self.settings.download.per_platform_concurrency)
-        if self.settings.evil0ctal.enabled:
-            ok = evil0ctal_health(self.settings)
-            if ok:
-                log.info("Evil0ctal 兜底服务在线: %s", self.settings.evil0ctal.base_url)
-            else:
-                log.warning(
-                    "Evil0ctal 兜底服务不可达: %s —— 抖音/TikTok 任务失败时无法自动兜底（部署方法见 README）",
-                    self.settings.evil0ctal.base_url,
-                )
 
     def stop(self, timeout: float = 10.0) -> None:
         """停止调度并取消运行中的任务，最多等 timeout 秒让它们写完终态、清理临时目录。

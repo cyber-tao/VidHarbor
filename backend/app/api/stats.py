@@ -8,7 +8,6 @@ from sqlalchemy import func
 
 from ..config import local_timezone
 from ..db import get_sessionmaker
-from ..downloader.engine import task_snapshot
 from ..models import DownloadTask, Video
 
 router = APIRouter()
@@ -71,13 +70,6 @@ def stats():
             if status in task_counts:
                 task_counts[status] = cnt
 
-        recent_tasks = (
-            session.query(DownloadTask)
-            .order_by(DownloadTask.id.desc())
-            .limit(8)
-            .all()
-        )
-
         return {
             "videos": {
                 "total": total,
@@ -87,5 +79,4 @@ def stats():
                 "last14": last14,
             },
             "tasks": task_counts,
-            "recent_tasks": [task_snapshot(t) for t in recent_tasks],
         }

@@ -14,7 +14,6 @@ from ..downloader.options import DownloadOptions
 from ..models import Schedule
 from ..scheduler import (
     claim_run,
-    make_trigger,
     register,
     release_run,
     run_claimed_schedule,

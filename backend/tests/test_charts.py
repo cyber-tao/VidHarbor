@@ -472,7 +472,6 @@ class TestYoutubeOfficialApi:
 
     def test_api_error_falls_back_to_innertube(self, monkeypatch):
         from app.charts import youtube as ym
-        from app.charts.base import TrendingItem
         from app.charts.youtube import YoutubeProvider
 
         class _BadResp:

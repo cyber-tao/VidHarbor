@@ -107,15 +107,7 @@ class TestDownload:
             return httpx.Response(200, json=PARSE_OK)
 
         mp4 = b"\x00\x00\x00\x18ftypmp42" + b"v" * 64
-
-        def stream_handler(request):
-            return httpx.Response(
-                200, content=mp4,
-                headers={"content-length": str(len(mp4))},
-            )
-
         post_transport = httpx.MockTransport(post_handler)
-        stream_transport = httpx.MockTransport(stream_handler)
 
         def fake_post(url, **kw):
             kw.pop("timeout", None)

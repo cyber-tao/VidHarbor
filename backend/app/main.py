@@ -10,7 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
 from .api import access, auth, charts, events, schedules, settings as settings_api, stats, tasks, videos
-from .config import ensure_dirs, get_settings
+from .config import PLATFORMS, ensure_dirs, get_settings
 from .db import init_db
 from .downloader.engine import TaskQueue, evil0ctal_health
 from .events import bus
@@ -23,6 +23,7 @@ settings = get_settings()
 
 
 def _startup_checks() -> None:
+    """启动自检：缺失依赖与关键配置只在日志里提示，不阻止启动。"""
     missing = [t for t in ("ffmpeg", "ffprobe") if shutil.which(t) is None]
     if missing:
         log.warning("未找到 %s —— 视频探测/转码不可用，请先安装 ffmpeg", ", ".join(missing))
@@ -30,18 +31,17 @@ def _startup_checks() -> None:
         log.info("ffmpeg/ffprobe 就绪")
     if settings.cookies_path:
         log.info("已启用全局 cookies 文件: %s", settings.cookies_path)
-    platform_cookies = [p for p in ("bilibili", "youtube", "tiktok", "douyin")
-                        if settings.cookie_file_for(p)]
+    platform_cookies = [p for p in PLATFORMS if settings.cookie_file_for(p)]
     if platform_cookies:
         log.info("已配置平台 cookies: %s（设置页可管理）", ", ".join(platform_cookies))
     elif not settings.cookies_path:
         log.info("未配置 cookies —— YouTube 高清 / B站 1080P+ / TikTok 榜单可能受限（设置页可扫码/导入）")
     if settings.evil0ctal.enabled:
         if evil0ctal_health(settings):
-            log.info("Evil0ctal 抖音兜底服务在线: %s", settings.evil0ctal.base_url)
+            log.info("Evil0ctal 兜底服务在线: %s", settings.evil0ctal.base_url)
         else:
             log.warning(
-                "Evil0ctal 兜底服务不可达: %s —— 抖音下载失败时无法自动兜底（部署方法见 README）",
+                "Evil0ctal 兜底服务不可达: %s —— 抖音/TikTok 任务失败时无法自动兜底（部署方法见 README）",
                 settings.evil0ctal.base_url,
             )
     if not settings.frontend_dist.exists():
@@ -52,6 +52,7 @@ def _startup_checks() -> None:
 async def lifespan(app: FastAPI):
     ensure_dirs(settings)
     init_db()
+    _startup_checks()
     bus.bind_loop(asyncio.get_running_loop())
     queue = TaskQueue(settings)
     app.state.queue = queue

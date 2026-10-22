@@ -1,6 +1,5 @@
 """粘贴文本清洗：URL 提取 + 短链展开。"""
 import httpx
-import pytest
 
 from app.downloader.urlnorm import (
     expand_short_url,
