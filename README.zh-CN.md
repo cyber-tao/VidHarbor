@@ -107,8 +107,12 @@ TOKEN=<随机长字符串>    # 设置后除 /api/health 外所有 API 需携带
 BIND_IP=127.0.0.1       # 端口只绑定本机（默认 0.0.0.0）
 ```
 
-设置 `TOKEN` 后，浏览器首次访问 `http://<host>:8666/?token=<令牌>` 即可——前端会记住
-令牌并自动附带；程序化调用使用 `X-Vidharbor-Token` 头或 `?token=` 查询参数。
+设置 `TOKEN` 后，浏览器首次访问 `http://<host>:8666/#token=<令牌>`（或在页面弹出的输入框
+里填写令牌）即可——浏览器用它换取 HttpOnly 会话 Cookie，之后令牌不会再出现在 URL 和服务器
+访问日志里；程序化调用使用 `X-Vidharbor-Token` 请求头。
+
+> **迁移说明（v0.2.x）**：API 不再接受 `?token=` 查询参数，脚本请改用 `X-Vidharbor-Token`
+> 请求头；旧的 `/?token=…` 书签在浏览器首次访问时仍然有效。
 
 - 数据落在绑定挂载目录，与裸机安装完全一致：`./data`（SQLite 库、cookies、日志）与
   `./library`（视频）

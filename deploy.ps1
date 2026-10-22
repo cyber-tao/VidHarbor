@@ -106,7 +106,7 @@ function Ensure-Env {
             "PROXY=",
             "# Platforms routed via the proxy (JSON array): youtube/tiktok/bilibili/douyin",
             "PROXY_PLATFORMS=",
-            "# Optional access token: when set, every API call needs it (first visit http://<host>:<port>/?token=<token>)",
+            "# Optional access token: when set, every API call needs it (first visit http://<host>:<port>/#token=<token>)",
             "TOKEN=",
             "# Interface the port binds to: 0.0.0.0 = LAN accessible (default), 127.0.0.1 = localhost only",
             "BIND_IP=0.0.0.0"

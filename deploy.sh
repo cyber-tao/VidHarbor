@@ -134,7 +134,7 @@ EVIL0CTAL_API_KEY=
 PROXY=
 # 走代理的平台（JSON 数组）：["youtube","tiktok","bilibili","douyin"] 任选
 PROXY_PLATFORMS=
-# 可选访问令牌：设置后所有 API 需带令牌（浏览器首次访问 http://<host>:<port>/?token=<令牌>）
+# 可选访问令牌：设置后所有 API 需带令牌（浏览器首次访问 http://<host>:<port>/#token=<令牌>）
 TOKEN=
 # 端口绑定的网卡地址：默认 0.0.0.0（局域网可访问）；仅本机访问设 127.0.0.1
 BIND_IP=0.0.0.0

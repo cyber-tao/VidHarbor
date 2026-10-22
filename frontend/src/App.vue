@@ -1,14 +1,37 @@
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { darkTheme, NConfigProvider, NMessageProvider, NDialogProvider } from 'naive-ui'
+import { access, api } from './api.js'
 import { useEvents } from './stores.js'
 import LogDrawer from './components/LogDrawer.vue'
 
 const events = useEvents()
 const route = useRoute()
 const router = useRouter()
-onMounted(() => events.connect())
+onMounted(async () => {
+  // 需要令牌但还没登录时先不连 SSE：EventSource 收到 401 会无限重连
+  try {
+    const s = await api.sessionStatus()
+    if (s.required && !s.authenticated) {
+      access.denied = true
+      return
+    }
+  } catch { /* 状态接口不可用时照常连接，SSE 自带重连 */ }
+  events.connect()
+})
+
+const tokenInput = ref('')
+const tokenError = ref('')
+async function submitToken() {
+  tokenError.value = ''
+  try {
+    await api.createSession(tokenInput.value.trim())
+    location.reload()
+  } catch (e) {
+    tokenError.value = e.message
+  }
+}
 
 const nav = [
   { path: '/', label: '仪表盘', icon: 'M3 12l9-9 9 9M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10' },
@@ -66,6 +89,22 @@ const active = computed(() => nav.find((n) => n.path === route.path) || nav[0])
           </main>
         </div>
         <LogDrawer />
+        <!-- 访问令牌：服务端设置了 TOKEN 且本浏览器尚未登录 -->
+        <div v-if="access.denied" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-6">
+          <form class="w-full max-w-sm space-y-3 rounded-xl border border-zinc-700 bg-zinc-900 p-5" @submit.prevent="submitToken">
+            <div class="text-sm font-medium text-zinc-100">需要访问令牌</div>
+            <div class="text-[11px] leading-4 text-zinc-500">
+              服务端设置了访问令牌（.env 中的 TOKEN）。输入后本浏览器会记住登录状态。
+            </div>
+            <input v-model="tokenInput" type="password" autocomplete="current-password" placeholder="访问令牌"
+              class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 font-mono text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
+            <div v-if="tokenError" class="text-[11px] text-red-400">{{ tokenError }}</div>
+            <button type="submit" :disabled="!tokenInput.trim()"
+              class="w-full rounded-lg bg-indigo-500 py-1.5 text-xs font-medium text-white hover:bg-indigo-400 disabled:opacity-40">
+              进入
+            </button>
+          </form>
+        </div>
       </NDialogProvider>
     </NMessageProvider>
   </NConfigProvider>

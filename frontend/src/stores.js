@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-import { api, authUrl } from './api.js'
+import { api } from './api.js'
 
 /** SSE 实时事件：任务进度 / 日志 / 统计刷新信号 */
 export const useEvents = defineStore('events', {
@@ -22,7 +22,7 @@ export const useEvents = defineStore('events', {
   actions: {
     connect() {
       if (this._es) return
-      const es = new EventSource(authUrl('/api/events'))
+      const es = new EventSource('/api/events')
       this._es = es
       es.addEventListener('hello', () => { this.connected = true })
       es.onerror = () => { this.connected = false }

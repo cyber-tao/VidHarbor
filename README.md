@@ -137,9 +137,14 @@ TOKEN=<long random string>   # every API call except /api/health then requires t
 BIND_IP=127.0.0.1            # bind the port to localhost only (default 0.0.0.0)
 ```
 
-With `TOKEN` set, open `http://<host>:8666/?token=<token>` once — the frontend remembers
-it and attaches it automatically; programmatic callers use the `X-Vidharbor-Token`
-header or the `?token=` query parameter.
+With `TOKEN` set, open `http://<host>:8666/#token=<token>` once (or type the token when
+the page asks for it): the browser exchanges it for an HttpOnly session cookie, so the
+token never shows up in URLs or server access logs afterwards. Programmatic callers send
+the `X-Vidharbor-Token` header.
+
+> **Migration (v0.2.x)**: the API no longer accepts a `?token=` query parameter — switch
+> scripts to the `X-Vidharbor-Token` header. Old `/?token=…` bookmarks still work for the
+> first browser visit.
 
 - Data persists in bind mounts: `./data` (SQLite DB, cookies, logs) and `./library` (videos) —
   the same layout as a bare-metal install

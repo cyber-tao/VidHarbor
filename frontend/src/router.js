@@ -10,7 +10,11 @@ const routes = [
   { path: '/settings', name: 'settings', component: () => import('./views/SettingsView.vue') },
 ]
 
-export default createRouter({
-  history: createWebHistory(),
-  routes,
-})
+// 工厂函数：createWebHistory() 在创建时记录当前地址并在首次导航时写回，
+// 必须等 main.js 从地址栏抹掉令牌之后再创建
+export function createAppRouter() {
+  return createRouter({
+    history: createWebHistory(),
+    routes,
+  })
+}

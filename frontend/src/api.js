@@ -1,29 +1,15 @@
-// 可选访问令牌：服务端设置 VIDHARBOR_TOKEN 后，首次经 /?token=xxx 访问时由 main.js 存入
-const TOKEN_KEY = 'vidharbor_token'
+import { reactive } from 'vue'
 
-export function getToken() { return localStorage.getItem(TOKEN_KEY) || '' }
-
-export function setToken(t) {
-  t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY)
-}
-
-function authHeaders(extra = {}) {
-  const t = getToken()
-  return t ? { ...extra, 'X-Vidharbor-Token': t } : extra
-}
-
-// <video>/<track>/缩略图等标签 URL 无法带自定义头，改用 ?token= 查询参数
-export function authUrl(url) {
-  const t = getToken()
-  if (!t) return url
-  return url + (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(t)
-}
+// 可选访问令牌（服务端设置 VIDHARBOR_TOKEN）：浏览器用令牌换取 HttpOnly 会话 Cookie，
+// 之后 fetch / SSE / <video> 等同源请求自动携带；任何请求收到 401 时界面弹出令牌输入
+export const access = reactive({ denied: false })
 
 async function req(path, options = {}) {
   const res = await fetch(path, {
-    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    headers: { 'Content-Type': 'application/json' },
     ...options,
   })
+  if (res.status === 401) access.denied = true
   if (!res.ok) {
     let detail = `${res.status} ${res.statusText}`
     try {
@@ -40,6 +26,10 @@ export const api = {
   post: (path, data) => req(path, { method: 'POST', body: JSON.stringify(data ?? {}) }),
   put: (path, data) => req(path, { method: 'PUT', body: JSON.stringify(data ?? {}) }),
   del: (path) => req(path, { method: 'DELETE' }),
+
+  // 访问令牌会话
+  sessionStatus: () => api.get('/api/auth/session'),
+  createSession: (token) => api.post('/api/auth/session', { token }),
 
   // tasks
   createTasks: (urls, options = null) => api.post('/api/tasks', { urls, options }),
@@ -70,8 +60,9 @@ export const api = {
   uploadCookies: (platform, file) => {
     const form = new FormData()
     form.append('file', file)
-    return fetch(`/api/auth/cookies/${platform}/upload`, { method: 'POST', body: form, headers: authHeaders() })
+    return fetch(`/api/auth/cookies/${platform}/upload`, { method: 'POST', body: form })
       .then(async (res) => {
+        if (res.status === 401) access.denied = true
         if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '上传失败')
         return res.json()
       })

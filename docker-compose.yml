@@ -25,7 +25,8 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       # Optional access token: when set (non-empty), every /api call except
-      # /api/health requires it (X-Vidharbor-Token header or ?token= query).
+      # /api/health requires it (X-Vidharbor-Token header, or the browser session
+      # cookie obtained by opening http://<host>:<port>/#token=<token> once).
       VIDHARBOR_TOKEN: ${TOKEN:-}
       # Evil0ctal fallback engine. Standalone default points at a service on the
       # host (Docker Desktop resolves host.docker.internal; Linux needs the
