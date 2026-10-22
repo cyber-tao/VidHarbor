@@ -188,6 +188,47 @@ class TestScheduleState:
             client.delete(f"/api/schedules/{sid}")
 
 
+class TestTimestampsCarryOffset:
+    """API 时间字段必须带时区偏移：无偏移的 ISO 串会被浏览器当本地时间，显示差一个时区。"""
+
+    def test_iso_utc(self):
+        from datetime import datetime, timedelta, timezone
+
+        from app.models import iso_utc
+
+        assert iso_utc(None) is None
+        assert iso_utc(datetime(2026, 10, 22, 2, 0, 0, 123456)) == "2026-10-22T02:00:00.123+00:00"
+        aware = datetime(2026, 10, 23, 9, 0, tzinfo=timezone(timedelta(hours=8)))
+        assert iso_utc(aware) == "2026-10-23T09:00:00.000+08:00"
+
+    def test_task_video_schedule_payloads(self, client, monkeypatch):
+        from app.db import get_sessionmaker
+        from app.models import Schedule, Video, utcnow
+
+        monkeypatch.setattr(client.app.state.queue, "submit", lambda *a, **k: None)
+        task = client.post("/api/tasks", json={
+            "urls": ["https://www.youtube.com/watch?v=offsetcheck"]}).json()["tasks"][0]
+        client.delete(f"/api/tasks/{task['id']}")
+        assert task["created_at"].endswith("+00:00")
+
+        sm = get_sessionmaker()
+        with sm() as s:
+            v = Video(platform="other", source_id="tz-offset-1", title="tz")
+            row = Schedule(name="tz", selections="[]", last_run_at=utcnow())
+            s.add_all([v, row])
+            s.commit()
+            vid, sid = v.id, row.id
+        try:
+            assert client.get(f"/api/videos/{vid}").json()["created_at"].endswith("+00:00")
+            snap = next(x for x in client.get("/api/schedules").json()["schedules"] if x["id"] == sid)
+            assert snap["last_run_at"].endswith("+00:00")
+        finally:
+            with sm() as s:
+                s.delete(s.get(Video, vid))
+                s.delete(s.get(Schedule, sid))
+                s.commit()
+
+
 class TestEvents:
     def test_sse_stream(self, client):
         with client.stream("GET", "/api/events") as res:

@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from ..config import Settings, get_settings
 from ..db import get_sessionmaker
 from ..events import bus
-from ..models import DownloadTask, Video
+from ..models import DownloadTask, Video, iso_utc
 from .evil0ctal import Evil0ctalClient, evil0ctal_download
 from .options import parse_options_json, parse_source_id, resolve_options
 from .ytdlp import DownloadCancelled, ytdlp_download
@@ -42,10 +42,6 @@ def active_task_urls(session) -> set[str]:
     return {u for (u,) in rows if u}
 
 
-def _iso(dt) -> str | None:
-    return dt.isoformat() if dt is not None else None
-
-
 def task_snapshot(t: DownloadTask) -> dict:
     import json as _json
 
@@ -58,7 +54,7 @@ def task_snapshot(t: DownloadTask) -> dict:
         "stage": t.stage, "progress": round(t.progress or 0, 4), "speed": t.speed,
         "eta": t.eta, "engine": t.engine, "error": t.error, "video_id": t.video_id,
         "options": opts, "schedule_id": t.schedule_id,
-        "created_at": _iso(t.created_at), "updated_at": _iso(t.updated_at),
+        "created_at": iso_utc(t.created_at), "updated_at": iso_utc(t.updated_at),
     }
 
 

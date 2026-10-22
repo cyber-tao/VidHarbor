@@ -18,7 +18,7 @@ from .db import get_sessionmaker
 from .downloader.engine import TaskQueue, active_task_urls, detect_platform
 from .downloader.options import parse_source_id
 from .events import bus
-from .models import DownloadTask, Schedule, Video, utcnow
+from .models import DownloadTask, Schedule, Video, iso_utc, utcnow
 
 log = logging.getLogger("vidharbor.scheduler")
 
@@ -74,10 +74,10 @@ def schedule_snapshot(row: Schedule, next_run_at=None) -> dict:
         "trigger_desc": describe_trigger(row),
         "selections": selections,
         "options": _safe_options(row.options),
-        "last_run_at": row.last_run_at.isoformat() if row.last_run_at else None,
+        "last_run_at": iso_utc(row.last_run_at),
         "last_result": last_result,
-        "next_run_at": next_run_at.isoformat() if next_run_at else None,
-        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "next_run_at": iso_utc(next_run_at),
+        "created_at": iso_utc(row.created_at),
     }
 
 
@@ -209,7 +209,7 @@ def run_schedule(schedule_id: int, queue: TaskQueue) -> dict:
                      row.name, platform, category, period, created, skipped)
 
         result = {
-            "at": utcnow().isoformat(), "created": total_created,
+            "at": iso_utc(utcnow()), "created": total_created,
             "skipped": total_skipped, "failed": total_failed,
             "errors": errors[:10], "selections": per_selection,
         }

@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException
 from ..charts import provider_for
 from ..charts.base import ChartError
 from ..db import get_sessionmaker
-from ..models import ChartCache, utcnow
+from ..models import ChartCache, iso_utc, utcnow
 
 log = logging.getLogger("vidharbor.api.charts")
 router = APIRouter()
@@ -62,7 +62,7 @@ def get_charts(platform: str, category: str = "", period: str = "", refresh: boo
             return {
                 "platform": platform, "category": category, "period": period,
                 "categories": categories,
-                "fetched_at": cached.fetched_at.isoformat(),
+                "fetched_at": iso_utc(cached.fetched_at),
                 "cached": True, "degraded": False, "message": "",
                 "items": json.loads(cached.payload),
             }
@@ -82,7 +82,7 @@ def get_charts(platform: str, category: str = "", period: str = "", refresh: boo
             return {
                 "platform": platform, "category": category, "period": period,
                 "categories": categories,
-                "fetched_at": now.isoformat(), "cached": False,
+                "fetched_at": iso_utc(now), "cached": False,
                 "degraded": False, "message": "", "items": items,
             }
         except ChartError as e:
@@ -91,7 +91,7 @@ def get_charts(platform: str, category: str = "", period: str = "", refresh: boo
                 return {
                     "platform": platform, "category": category, "period": period,
                     "categories": categories,
-                    "fetched_at": cached.fetched_at.isoformat(),
+                    "fetched_at": iso_utc(cached.fetched_at),
                     "cached": True, "degraded": True,
                     "message": f"{e.message}（展示缓存数据）",
                     "items": json.loads(cached.payload),

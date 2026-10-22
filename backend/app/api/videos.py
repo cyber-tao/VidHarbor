@@ -14,7 +14,7 @@ from ..config import get_settings
 from ..db import get_sessionmaker
 from ..downloader.postprocess import srt_to_vtt
 from ..events import bus
-from ..models import DownloadTask, Subtitle, Tag, Video
+from ..models import DownloadTask, Subtitle, Tag, Video, iso_utc
 
 log = logging.getLogger("vidharbor.api.videos")
 router = APIRouter()
@@ -47,7 +47,7 @@ def _video_dict(v: Video, detail: bool = False) -> dict:
         "has_thumbnail": bool(v.thumbnail_path),
         "subtitles_count": len(v.subtitles),
         "tags": [t.name for t in v.tags],
-        "created_at": v.created_at.isoformat() if v.created_at else None,
+        "created_at": iso_utc(v.created_at),
     }
     if detail:
         d["description"] = v.description

@@ -20,6 +20,18 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def iso_utc(dt: datetime | None) -> str | None:
+    """API 时间字段的统一出口：库内 naive UTC 补上 +00:00，已带时区的保留原偏移。
+
+    不带偏移的 ISO 串会被浏览器 new Date() 当作本地时间，显示整整差一个时区。
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat(timespec="milliseconds")
+
+
 class Base(DeclarativeBase):
     pass
 
