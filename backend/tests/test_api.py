@@ -209,6 +209,15 @@ class TestVideoDelete:
 
 class TestProxySettingsAPI:
     def test_put_proxy_settings(self, client):
+        from app.config import invalidate_settings_cache
+        from app.db import get_sessionmaker
+        from app.models import AppSetting
+
+        sm = get_sessionmaker()
+        with sm() as s:
+            row = s.get(AppSetting, 1)
+            original = row.data if row is not None else None
+
         r = client.put("/api/settings", json={"download": {
             "proxy": "http://host.docker.internal:7890",
             "proxy_platforms": ["youtube", "tiktok"],
@@ -217,8 +226,17 @@ class TestProxySettingsAPI:
         d = r.json()["settings"]["download"]
         assert d["proxy"] == "http://host.docker.internal:7890"
         assert d["proxy_platforms"] == ["youtube", "tiktok"]
-        # 还原，避免污染其他测试/本机数据
-        client.put("/api/settings", json={"download": {"proxy": "", "proxy_platforms": []}})
-        d = client.get("/api/settings").json()["settings"]["download"]
-        assert d["proxy"] == ""
-        assert d["proxy_platforms"] == []
+
+        # 还原测试前的原始覆盖值（不得把用户配置清成空值）
+        with sm() as s:
+            row = s.get(AppSetting, 1)
+            if original is None:
+                if row is not None:
+                    s.delete(row)
+            else:
+                if row is None:
+                    s.add(AppSetting(id=1, data=original))
+                else:
+                    row.data = original
+            s.commit()
+        invalidate_settings_cache()
