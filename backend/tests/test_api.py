@@ -240,3 +240,73 @@ class TestProxySettingsAPI:
                     row.data = original
             s.commit()
         invalidate_settings_cache()
+
+
+class TestTaskDedup:
+    """进行中去重：已在队列（pending/running）的 URL 不重复建任务，retry 撞车返回 409。"""
+
+    def test_create_skips_active_and_retry_conflicts(self, client, monkeypatch):
+        monkeypatch.setattr(client.app.state.queue, "submit", lambda *a, **k: None)
+        url = "https://www.youtube.com/watch?v=dedup123456"
+        r1 = client.post("/api/tasks", json={"urls": [url]})
+        assert r1.status_code == 200
+        body1 = r1.json()
+        assert len(body1["tasks"]) == 1 and body1["skipped"] == 0
+
+        r2 = client.post("/api/tasks", json={"urls": [url]})
+        body2 = r2.json()
+        assert body2["tasks"] == [] and body2["skipped"] == 1
+
+        tid = body1["tasks"][0]["id"]
+        # pending 任务本身不可 retry
+        assert client.post(f"/api/tasks/{tid}/retry").status_code == 400
+
+        # 终态任务 retry 时，若同 URL 又有新任务在队列 → 409
+        client.delete(f"/api/tasks/{tid}")  # → canceled
+        r3 = client.post("/api/tasks", json={"urls": [url]})
+        assert len(r3.json()["tasks"]) == 1  # canceled 不算 active，可新建
+        assert client.post(f"/api/tasks/{tid}/retry").status_code == 409
+        client.delete(f"/api/tasks/{r3.json()['tasks'][0]['id']}")  # 清理
+
+
+class TestScheduleDedup:
+    """定时任务两轮连跑：上一轮还在队列中的 URL 第二轮跳过，不重复下载。"""
+
+    def test_run_skips_urls_already_queued(self, client, monkeypatch):
+        import json as _json
+
+        from app import scheduler as sched
+        from app.charts.base import TrendingItem
+        from app.db import get_sessionmaker
+        from app.models import Schedule
+
+        class FakeProvider:
+            def normalize(self, category, period):
+                return category or "hot", period
+
+            def fetch(self, category, period):
+                return [TrendingItem(source_id="BV1TEST0000x", title="t",
+                                     url="https://www.bilibili.com/video/BV1TEST0000x")]
+
+        monkeypatch.setattr(sched, "provider_for", lambda p: FakeProvider())
+        monkeypatch.setattr(client.app.state.queue, "submit", lambda *a, **k: None)
+
+        sm = get_sessionmaker()
+        with sm() as s:
+            row = Schedule(
+                name="去重测试", mode="daily",
+                selections=_json.dumps([{"platform": "bilibili", "category": "hot",
+                                         "period": "", "limit": 5}]))
+            s.add(row)
+            s.commit()
+            sid = row.id
+        try:
+            r1 = sched.run_schedule(sid, client.app.state.queue)
+            assert r1["created"] == 1
+            r2 = sched.run_schedule(sid, client.app.state.queue)
+            assert r2["created"] == 0
+            assert r2["skipped"] == 1
+        finally:
+            with sm() as s:
+                s.delete(s.get(Schedule, sid))
+                s.commit()

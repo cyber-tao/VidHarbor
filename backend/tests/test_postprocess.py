@@ -48,3 +48,41 @@ class TestSrtToVtt:
         assert vtt.startswith("WEBVTT")
         assert "00:00:01.000 --> 00:00:02.500" in vtt
         assert "," not in vtt.split("-->")[1].split("\n")[0]
+
+
+class TestIngestRecovery:
+    """入库提交失败（并发撞唯一约束）：回收已移动文件，关联抢先入库的条目。"""
+
+    def test_conflict_rolls_back_files_and_links_existing(self, monkeypatch, tmp_path):
+        from app.config import get_settings
+        from app.db import get_sessionmaker
+        from app.downloader import postprocess as pp
+        from app.downloader.ytdlp import RawDownload
+        from app.models import DownloadTask, Video
+
+        settings = get_settings()
+        sm = get_sessionmaker()
+
+        def fake_ensure_mp4(src, out_dir, *a, **k):
+            # 模拟并发赢家：转码期间另一任务抢先入库同 platform+source_id
+            out_dir.mkdir(parents=True, exist_ok=True)
+            f = out_dir / "final.mp4"
+            f.write_bytes(b"x" * 8)
+            with sm() as s:
+                s.add(Video(platform="bilibili", source_id="sid-dup"))
+                s.commit()
+            return f, "remux"
+
+        monkeypatch.setattr(pp, "ensure_mp4", fake_ensure_mp4)
+        monkeypatch.setattr(pp, "run_ffprobe", lambda p: {"streams": [], "format": {}})
+
+        raw = RawDownload(ok=True, info={"id": "sid-dup", "title": "T", "uploader": "UP"},
+                          media_path=tmp_path / "src.mp4", temp_dir=tmp_path)
+        task = DownloadTask(url="https://www.bilibili.com/video/BV1xx411c7mD",
+                            platform="bilibili")
+        with sm() as session:
+            video, created = pp.ingest(raw, task, session, settings)
+            assert created is False
+            assert video.source_id == "sid-dup"
+        # 不留孤儿文件：库目录中的产物已被回收
+        assert not (settings.videos_dir / "bilibili" / "UP").exists()

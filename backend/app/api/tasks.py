@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ..db import get_sessionmaker
-from ..downloader.engine import detect_platform, task_snapshot
+from ..downloader.engine import active_task_urls, detect_platform, task_snapshot
 from ..downloader.urlnorm import normalize_inputs
 from ..events import bus
 from ..models import DownloadTask
@@ -47,8 +47,14 @@ def create_tasks(req: CreateTasksReq, request: Request):
     sm = get_sessionmaker()
     queue = request.app.state.queue
     with sm() as session:
+        # 已在队列中的 URL 跳过：避免同一视频被并发完整下载两份
+        active = active_task_urls(session)
         tasks = []
+        skipped = 0
         for u in urls:
+            if u[:1024] in active:
+                skipped += 1
+                continue
             t = DownloadTask(url=u[:1024], platform=detect_platform(u), options=options_json)
             session.add(t)
             tasks.append(t)
@@ -56,8 +62,8 @@ def create_tasks(req: CreateTasksReq, request: Request):
         for t in tasks:
             queue.submit(t.id, t.platform)
         snapshots = [task_snapshot(t) for t in tasks]
-    log.info("创建 %d 个下载任务", len(snapshots))
-    return {"tasks": snapshots}
+    log.info("创建 %d 个下载任务（跳过 %d 个已在队列）", len(snapshots), skipped)
+    return {"tasks": snapshots, "skipped": skipped}
 
 
 @router.get("/api/tasks")
@@ -104,6 +110,15 @@ def retry_task(task_id: int, request: Request):
         old = session.get(DownloadTask, task_id)
         if old is None:
             raise HTTPException(status_code=404, detail="任务不存在")
+        if old.status in ("pending", "running"):
+            raise HTTPException(status_code=400, detail="任务尚未结束，无需重试")
+        dup = session.query(DownloadTask).filter(
+            DownloadTask.status.in_(("pending", "running")),
+            DownloadTask.url == old.url,
+            DownloadTask.id != old.id,
+        ).first()
+        if dup is not None:
+            raise HTTPException(status_code=409, detail="已有相同链接的任务正在队列中")
         t = DownloadTask(url=old.url, platform=old.platform,
                          options=old.options, schedule_id=old.schedule_id)
         session.add(t)

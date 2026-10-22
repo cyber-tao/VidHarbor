@@ -16,7 +16,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from .api.charts import provider_for
 from .config import get_settings
 from .db import get_sessionmaker
-from .downloader.engine import TaskQueue, detect_platform
+from .downloader.engine import TaskQueue, active_task_urls, detect_platform
 from .downloader.options import parse_source_id
 from .events import bus
 from .models import DownloadTask, Schedule, Video, utcnow
@@ -154,6 +154,8 @@ def run_schedule(schedule_id: int, queue: TaskQueue) -> dict:
         total_created, total_skipped, total_failed = 0, 0, 0
         errors: list[str] = []
         per_selection: list[dict] = []
+        # 上一轮任务可能尚未下载完成：队列中的 URL 直接跳过，防止重复下载
+        active_urls = active_task_urls(session)
         log.info("定时任务「%s」开始: %d 个榜单", row.name, len(selections))
         for sel in selections:
             platform = str(sel.get("platform") or "")
@@ -185,6 +187,9 @@ def run_schedule(schedule_id: int, queue: TaskQueue) -> dict:
                     continue
                 if created + skipped >= limit:
                     break
+                if item.url[:1024] in active_urls:
+                    skipped += 1
+                    continue
                 sid = parse_source_id(detect_platform(item.url), item.url) or item.source_id
                 exists = False
                 if sid:
@@ -201,6 +206,7 @@ def run_schedule(schedule_id: int, queue: TaskQueue) -> dict:
                 session.add(t)
                 session.commit()
                 queue.submit(t.id, t.platform)
+                active_urls.add(t.url)
                 created += 1
             total_created += created
             total_skipped += skipped

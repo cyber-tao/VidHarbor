@@ -34,6 +34,14 @@ def detect_platform(url: str) -> str:
     return "other"
 
 
+def active_task_urls(session) -> set[str]:
+    """当前排队/下载中任务的 URL 集合（创建新任务前去重，防止同一视频并发下载两份）。"""
+    rows = session.query(DownloadTask.url).filter(
+        DownloadTask.status.in_(("pending", "running"))
+    ).all()
+    return {u for (u,) in rows if u}
+
+
 def _iso(dt) -> str | None:
     return dt.isoformat() if dt is not None else None
 

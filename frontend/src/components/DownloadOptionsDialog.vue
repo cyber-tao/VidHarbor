@@ -51,7 +51,8 @@ async function submit() {
   submitting.value = true
   try {
     const res = await api.createTasks(props.urls, optionsPayload.value)
-    message.success(`已添加 ${res.tasks.length} 个下载任务`)
+    const extra = res.skipped ? `（跳过 ${res.skipped} 个已在队列）` : ''
+    message.success(`已添加 ${res.tasks.length} 个下载任务${extra}`)
     emit('update:show', false)
     emit('done', res)
   } catch (e) {

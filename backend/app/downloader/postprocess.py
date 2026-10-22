@@ -248,65 +248,92 @@ def ingest(
     while target.exists():
         target = target_dir / f"{filename} ({n}).mp4"
         n += 1
-    shutil.move(str(final), str(target))
 
     def rel(p: Path) -> str:
         return p.resolve().relative_to(settings.library_root.resolve()).as_posix()
 
-    thumbnail_rel = ""
-    if raw.thumbnail_path and raw.thumbnail_path.exists():
-        ext = raw.thumbnail_path.suffix.lower() or ".jpg"
-        t_target = target.with_name(f"{target.stem}{ext}")
-        shutil.move(str(raw.thumbnail_path), str(t_target))
-        thumbnail_rel = rel(t_target)
+    # 文件先移入库目录、事务后提交：提交失败必须回收已移动文件，
+    # 否则留下无 DB 记录的孤儿文件（如并发下载撞 uq_video_platform_source）
+    moved: list[Path] = []
+    try:
+        shutil.move(str(final), str(target))
+        moved.append(target)
 
-    video = Video(
-        platform=platform,
-        source_id=source_id,
-        url=str(info.get("webpage_url") or task.url),
-        title=str(info.get("title") or source_id),
-        uploader=uploader[:255],
-        uploader_id=str(info.get("uploader_id") or info.get("channel_id") or "")[:255],
-        upload_date=upload_date[:10],
-        duration=float(fmt.get("duration") or info.get("duration") or 0),
-        description=str(info.get("description") or "")[:20000],
-        thumbnail_path=thumbnail_rel,
-        video_path=rel(target),
-        file_size=int(float(fmt.get("size") or 0)) or target.stat().st_size,
-        width=int(v.get("width") or 0),
-        height=int(v.get("height") or 0),
-        fps=parse_fps(v.get("avg_frame_rate")),
-        vcodec=str(v.get("codec_name") or ""),
-        acodec=str(a.get("codec_name") or ""),
-        view_count=int(info.get("view_count") or 0),
-        like_count=int(info.get("like_count") or 0),
-        raw_metadata=json.dumps(info, ensure_ascii=False, default=str),
-    )
-    session.add(video)
-    session.flush()
+        thumbnail_rel = ""
+        if raw.thumbnail_path and raw.thumbnail_path.exists():
+            ext = raw.thumbnail_path.suffix.lower() or ".jpg"
+            t_target = target.with_name(f"{target.stem}{ext}")
+            shutil.move(str(raw.thumbnail_path), str(t_target))
+            moved.append(t_target)
+            thumbnail_rel = rel(t_target)
 
-    for srt in raw.subtitle_files:
-        if not srt.exists():
-            continue
-        lang = _lang_of(srt)
-        auto = _is_auto(lang, info)
-        suffix = f"{lang}.auto" if auto else lang
-        s_target = target.with_name(f"{target.stem}.{suffix}.srt")
-        if s_target.exists():
-            s_target.unlink()
-        content = srt.read_text(encoding="utf-8-sig", errors="replace")
-        shutil.move(str(srt), str(s_target))
-        session.add(Subtitle(
-            video_id=video.id, lang=lang, auto_generated=auto,
-            format="srt", content=content, file_path=rel(s_target),
-        ))
-        log.info("字幕入库: %s [%s%s]", target.stem[:40], lang, " 自动" if auto else "")
+        video = Video(
+            platform=platform,
+            source_id=source_id,
+            url=str(info.get("webpage_url") or task.url),
+            title=str(info.get("title") or source_id),
+            uploader=uploader[:255],
+            uploader_id=str(info.get("uploader_id") or info.get("channel_id") or "")[:255],
+            upload_date=upload_date[:10],
+            duration=float(fmt.get("duration") or info.get("duration") or 0),
+            description=str(info.get("description") or "")[:20000],
+            thumbnail_path=thumbnail_rel,
+            video_path=rel(target),
+            file_size=int(float(fmt.get("size") or 0)) or target.stat().st_size,
+            width=int(v.get("width") or 0),
+            height=int(v.get("height") or 0),
+            fps=parse_fps(v.get("avg_frame_rate")),
+            vcodec=str(v.get("codec_name") or ""),
+            acodec=str(a.get("codec_name") or ""),
+            view_count=int(info.get("view_count") or 0),
+            like_count=int(info.get("like_count") or 0),
+            raw_metadata=json.dumps(info, ensure_ascii=False, default=str),
+        )
+        session.add(video)
+        session.flush()
 
-    for tname in (info.get("tags") or [])[:12]:
-        if isinstance(tname, str) and tname.strip():
-            session.add(Tag(video_id=video.id, name=tname.strip()[:64]))
+        for srt in raw.subtitle_files:
+            if not srt.exists():
+                continue
+            lang = _lang_of(srt)
+            auto = _is_auto(lang, info)
+            suffix = f"{lang}.auto" if auto else lang
+            s_target = target.with_name(f"{target.stem}.{suffix}.srt")
+            if s_target.exists():
+                s_target.unlink()
+            content = srt.read_text(encoding="utf-8-sig", errors="replace")
+            shutil.move(str(srt), str(s_target))
+            moved.append(s_target)
+            session.add(Subtitle(
+                video_id=video.id, lang=lang, auto_generated=auto,
+                format="srt", content=content, file_path=rel(s_target),
+            ))
+            log.info("字幕入库: %s [%s%s]", target.stem[:40], lang, " 自动" if auto else "")
 
-    session.commit()
+        for tname in (info.get("tags") or [])[:12]:
+            if isinstance(tname, str) and tname.strip():
+                session.add(Tag(video_id=video.id, name=tname.strip()[:64]))
+
+        session.commit()
+    except Exception:
+        session.rollback()
+        for p in moved:
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                log.warning("入库失败后回收文件未成功: %s", p)
+        try:
+            if target_dir.is_dir() and not any(target_dir.iterdir()):
+                target_dir.rmdir()
+        except OSError:
+            pass
+        # 并发下载同视频时唯一约束冲突：此时库中已有同 ID 条目，按"已存在"收敛
+        winner = session.query(Video).filter_by(
+            platform=platform, source_id=source_id).first()
+        if winner is not None:
+            log.info("入库提交失败但库中已有 [%s] %s，关联现有条目", platform, source_id)
+            return winner, False
+        raise
     log.info(
         "入库: [%s] %s → %s (%s, %.1f MB)",
         platform, video.title[:50], rel(target), action, video.file_size / 1_048_576,
