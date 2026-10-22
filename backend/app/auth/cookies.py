@@ -16,6 +16,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 from ..config import PLATFORMS, Settings
 
@@ -53,6 +54,40 @@ _CHROMIUM_DATA_DIRS = {
 _OPERA_DATA_DIR = ("Opera Software", "Opera Stable")
 
 
+HTTPONLY_PREFIX = "#HttpOnly_"
+
+
+class NetscapeCookie(NamedTuple):
+    domain: str
+    name: str
+    value: str
+    line: str  # 原始行，保存时原样写回（保留 #HttpOnly_ 标记）
+
+
+def parse_netscape(text: str, *, strict: bool = False) -> list[NetscapeCookie]:
+    """解析 Netscape cookies.txt（全项目唯一实现）。
+
+    `#HttpOnly_` 开头的行是 HttpOnly cookie（curl、标准库 MozillaCookieJar 等的写法），
+    不是注释——SESSDATA / sessionid 这类登录态恰恰都是 HttpOnly。
+    strict=True 时字段不足 7 列抛 ValueError（上传校验用），否则跳过该行。
+    """
+    cookies: list[NetscapeCookie] = []
+    for raw in text.removeprefix("\ufeff").splitlines():
+        line = raw.strip(" ")
+        entry = line[len(HTTPONLY_PREFIX):] if line.startswith(HTTPONLY_PREFIX) else line
+        if not entry.strip() or entry.startswith("#"):
+            continue
+        parts = entry.split("\t")
+        if len(parts) < 7:
+            if strict:
+                raise ValueError(
+                    "格式不符：需要 Netscape 格式 cookies.txt（推荐浏览器扩展 Get cookies.txt LOCALLY 导出）"
+                )
+            continue
+        cookies.append(NetscapeCookie(domain=parts[0], name=parts[5], value=parts[6], line=line))
+    return cookies
+
+
 def cookie_path(settings: Settings, platform: str) -> Path:
     return settings.cookies_dir / f"{platform}.txt"
 
@@ -62,20 +97,32 @@ def _domain_allowed(domain: str, platform: str) -> bool:
     return any(d == pat.lstrip(".") or d.endswith(pat) for pat in PLATFORM_DOMAINS[platform])
 
 
+def read_cookies(path: Path | None, platform: str) -> list[NetscapeCookie]:
+    """读取 cookies 文件中属于该平台域名的条目；文件缺失或不可读时返回空列表。"""
+    if path is None:
+        return []
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    return [c for c in parse_netscape(text) if _domain_allowed(c.domain, platform)]
+
+
+def cookie_jar(settings: Settings, platform: str) -> dict[str, str]:
+    """平台生效的 cookies（专属文件优先，回退全局 cookies_file）→ {name: value}，同名取后者。
+
+    按平台域名过滤：全局 cookies.txt 常混有其他站点（如 Google）的登录态，不能发给本平台。
+    """
+    return {c.name: c.value for c in read_cookies(settings.cookie_file_for(platform), platform)}
+
+
+def cookie_header(jar: dict[str, str]) -> str:
+    return "; ".join(f"{name}={value}" for name, value in jar.items())
+
+
 def save_text(settings: Settings, platform: str, text: str) -> int:
     """保存上传的 cookies.txt 内容（只保留该平台域名的行），返回 cookie 条数。"""
-    kept: list[str] = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        parts = stripped.split("\t")
-        if len(parts) < 7:
-            raise ValueError(
-                "格式不符：需要 Netscape 格式 cookies.txt（推荐浏览器扩展 Get cookies.txt LOCALLY 导出）"
-            )
-        if _domain_allowed(parts[0], platform):
-            kept.append(stripped)
+    kept = [c.line for c in parse_netscape(text, strict=True) if _domain_allowed(c.domain, platform)]
     if not kept:
         raise ValueError(
             f"文件中没有属于该平台域名（{'、'.join(PLATFORM_DOMAINS[platform])}）的 cookie"
@@ -99,8 +146,7 @@ def save_cookiejar(settings: Settings, platform: str, jar) -> int:
     path = cookie_path(settings, platform)
     path.parent.mkdir(parents=True, exist_ok=True)
     filtered.save(filename=str(path), ignore_discard=True, ignore_expires=True)
-    count = sum(1 for l in path.read_text(encoding="utf-8", errors="replace").splitlines()
-                if l.strip() and not l.lstrip().startswith("#"))
+    count = len(parse_netscape(path.read_text(encoding="utf-8", errors="replace")))
     log.info("保存 %s cookies: %d 条 → %s", platform, count, path)
     return count
 
@@ -176,19 +222,8 @@ def delete(settings: Settings, platform: str) -> bool:
 
 
 def read_pairs(settings: Settings, platform: str) -> list[tuple[str, str]]:
-    """读取为 (name, value) 列表（供拼装 Cookie 请求头）。"""
-    path = cookie_path(settings, platform)
-    if not path.exists():
-        return []
-    pairs = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split("\t")
-        if len(parts) >= 7:
-            pairs.append((parts[5], parts[6]))
-    return pairs
+    """读取平台专属 cookies 文件为 (name, value) 列表（不回退全局 cookies_file）。"""
+    return [(c.name, c.value) for c in read_cookies(cookie_path(settings, platform), platform)]
 
 
 def status(settings: Settings) -> dict:

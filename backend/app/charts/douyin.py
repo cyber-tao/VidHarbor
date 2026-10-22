@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import random
 import time
-from pathlib import Path
 from urllib.parse import quote, urlencode
 
 import httpx
 
+from ..auth import cookies as cookies_mod
 from ..config import Settings
 from ..downloader.evil0ctal import Evil0ctalClient, Evil0ctalError
 from .base import ChartError, ChartProvider, TrendingItem, fmt_published
@@ -116,20 +116,7 @@ class DouyinProvider(ChartProvider):
 
     # ---- 关键词搜索（custom:<词>）：真实视频，可勾选下载 ----
 
-    @staticmethod
-    def _read_cookie_jar(path: Path) -> dict[str, str]:
-        """Netscape cookies.txt → {name: value}（同名取后出现的，与浏览器行为一致）。"""
-        jar: dict[str, str] = {}
-        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split("\t")
-            if len(parts) >= 7:
-                jar[parts[5]] = parts[6]
-        return jar
-
-    def _require_search_deps(self) -> tuple[Evil0ctalClient, str]:
+    def _require_search_deps(self) -> tuple[Evil0ctalClient, dict[str, str]]:
         """搜索的前置条件：Evil0ctal 服务（签名）+ 抖音登录 cookies。"""
         if self.settings is None:
             raise ChartError("抖音搜索不可用：缺少配置")
@@ -139,21 +126,19 @@ class DouyinProvider(ChartProvider):
         client = Evil0ctalClient(cfg.base_url, cfg.api_key)
         if not client.health():
             raise ChartError(f"Evil0ctal 签名服务不可达（{cfg.base_url}）：请先启动服务，见 README")
-        cookies_path = self.settings.cookie_file_for("douyin")
-        if not cookies_path:
+        jar = cookies_mod.cookie_jar(self.settings, "douyin")
+        if not jar:
             raise ChartError(
                 "抖音搜索需要登录态：请在「设置 → 登录管理」导入或上传抖音 cookies"
             )
-        jar = self._read_cookie_jar(cookies_path)
         if not jar.get("ttwid"):
             raise ChartError("抖音 cookies 无效（缺 ttwid）：请重新在「设置 → 登录管理」导入")
-        cookie_str = "; ".join(f"{k}={v}" for k, v in jar.items())
-        return client, cookie_str
+        return client, jar
 
     def search_videos(self, keyword: str, count: int = 20) -> list[TrendingItem]:
         """官方 search/item 接口（签名链路见模块头注释）。"""
-        client, cookie_str = self._require_search_deps()
-        jar = dict(p.split("=", 1) for p in cookie_str.split("; ") if "=" in p)
+        client, jar = self._require_search_deps()
+        cookie_str = cookies_mod.cookie_header(jar)
         params = {
             "device_platform": "webapp", "aid": "6383", "channel": "channel_pc_web",
             "search_channel": "aweme_video_web", "enable_history": "1",

@@ -8,10 +8,10 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import httpx
 
+from ..auth import cookies as cookies_mod
 from ..config import Settings
 from .base import ChartError, ChartProvider, TrendingItem, fmt_published
 
@@ -37,27 +37,6 @@ REGIONS = [
     ("all", "全站"), ("1", "动画"), ("3", "音乐"), ("4", "游戏"), ("5", "娱乐"),
     ("36", "知识"), ("188", "科技"), ("23", "电影"), ("119", "鬼畜"),
 ]
-
-
-def _cookie_header(settings: Settings | None) -> str:
-    """从平台 cookies 文件构造 Cookie 头（每周必看等接口需要）。"""
-    if settings is None:
-        return ""
-    p: Path | None = settings.cookie_file_for("bilibili")
-    if not p:
-        return ""
-    try:
-        pairs = []
-        for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split("\t")
-            if len(parts) >= 7 and "bilibili.com" in parts[0]:
-                pairs.append(f"{parts[5]}={parts[6]}")
-        return "; ".join(pairs)
-    except OSError:
-        return ""
 
 
 def _api(url: str, params: dict, cookie: str = "", proxy: str = "") -> dict:
@@ -165,7 +144,8 @@ class BilibiliProvider(ChartProvider):
     def fetch(self, category: str, period: str = "") -> list[TrendingItem]:
         rid = "0" if category in ("", "all") else category
         # 全部接口都带登录 cookies：既满足「每周必看」，也缓解游客请求的 -352 风控
-        cookie = _cookie_header(self.settings)
+        cookie = (cookies_mod.cookie_header(cookies_mod.cookie_jar(self.settings, "bilibili"))
+                  if self.settings else "")
         proxy = self.settings.proxy_for("bilibili") if self.settings else ""
 
         if category == "weekly":

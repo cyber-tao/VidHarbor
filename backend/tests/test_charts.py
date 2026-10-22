@@ -63,6 +63,30 @@ class TestBilibili:
         BilibiliProvider().fetch("4")
         assert captured["params"]["rid"] == "4"
 
+    def test_sends_httponly_sessdata(self, tmp_path, monkeypatch):
+        from pathlib import Path
+
+        from app.config import Settings
+
+        cookie_file = tmp_path / "bilibili.txt"
+        cookie_file.write_text(
+            "# Netscape HTTP Cookie File\n"
+            "#HttpOnly_.bilibili.com\tTRUE\t/\tTRUE\t1999999999\tSESSDATA\tsess\n"
+            ".google.com\tTRUE\t/\tTRUE\t1999999999\tSID\tgoogle-secret\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(Settings, "cookie_file_for",
+                            lambda self, platform, _p=str(cookie_file): Path(_p))
+        captured = {}
+
+        def fake_get(url, **kw):
+            captured["cookie"] = kw["headers"].get("Cookie", "")
+            return _FakeResponse(self.SAMPLE)
+
+        monkeypatch.setattr("app.charts.bilibili.httpx.get", fake_get)
+        BilibiliProvider(Settings()).fetch("all")
+        assert captured["cookie"] == "SESSDATA=sess"
+
     def test_error_code_raises(self, monkeypatch):
         monkeypatch.setattr(
             "app.charts.bilibili.httpx.get",
@@ -625,6 +649,29 @@ class TestTikTokTagChart:
             raise AssertionError("应当抛出 ChartError")
         except ChartError as e:
             assert "不可达" in e.message
+
+    def test_httponly_session_cookie_is_sent(self, tmp_path, monkeypatch):
+        """`#HttpOnly_` 行（sessionid 等登录态）必须进 Cookie 头，其他站点的 cookie 不得外发。"""
+        provider = self._provider(tmp_path, monkeypatch)
+        (tmp_path / "tiktok.txt").write_text(
+            "# Netscape HTTP Cookie File\n"
+            ".tiktok.com\tTRUE\t/\tTRUE\t1999999999\tttwid\t1%7Cabc\n"
+            "#HttpOnly_.tiktok.com\tTRUE\t/\tTRUE\t1999999999\tsessionid\tsid-value\n"
+            ".google.com\tTRUE\t/\tTRUE\t1999999999\tSID\tgoogle-secret\n",
+            encoding="utf-8",
+        )
+        captured = {}
+
+        def fake_get(url, **kw):
+            captured["cookie"] = kw["headers"]["Cookie"]
+            if "challenge/detail" in url:
+                return _FakeResponse(self.DETAIL_SAMPLE)
+            return _FakeResponse(self.ITEM_SAMPLE)
+
+        monkeypatch.setattr("app.charts.tiktok.httpx.get", fake_get)
+        provider.fetch("funny")
+        assert "sessionid=sid-value" in captured["cookie"]
+        assert "google-secret" not in captured["cookie"]
 
     def test_pagination_until_target(self, tmp_path, monkeypatch):
         pages = [

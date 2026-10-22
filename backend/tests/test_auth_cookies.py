@@ -61,6 +61,44 @@ class TestDomainFilter:
         assert not (settings.cookies_dir / "youtube.txt").exists()
 
 
+class TestHttpOnlyLines:
+    """`#HttpOnly_` 前缀行是 HttpOnly cookie（SESSDATA 等登录态），不是注释。"""
+
+    TEXT = "\n".join([
+        "# Netscape HTTP Cookie File",
+        "#HttpOnly_.bilibili.com\tTRUE\t/\tTRUE\t1893456000\tSESSDATA\tsecret-session",
+        ".bilibili.com\tTRUE\t/\tFALSE\t1893456000\tbuvid3\tpublic",
+    ])
+
+    def test_save_text_keeps_httponly_cookie(self, settings):
+        assert cookies_mod.save_text(settings, "bilibili", self.TEXT) == 2
+        assert dict(cookies_mod.read_pairs(settings, "bilibili")) == {
+            "SESSDATA": "secret-session", "buvid3": "public",
+        }
+
+    def test_saved_file_still_loadable_by_ytdlp(self, settings):
+        from yt_dlp.cookies import YoutubeDLCookieJar
+
+        cookies_mod.save_text(settings, "bilibili", self.TEXT)
+        jar = YoutubeDLCookieJar(str(settings.cookies_dir / "bilibili.txt"))
+        jar.load()
+        assert {c.name for c in jar} == {"SESSDATA", "buvid3"}
+
+    def test_parse_handles_bom_and_empty_value(self):
+        text = "\ufeff# Netscape HTTP Cookie File\n.tiktok.com\tTRUE\t/\tTRUE\t0\tempty\t\n"
+        assert [(c.name, c.value) for c in cookies_mod.parse_netscape(text)] == [("empty", "")]
+
+    def test_cookie_jar_filters_global_file_by_platform(self, settings, tmp_path):
+        global_file = tmp_path / "all-cookies.txt"
+        global_file.write_text("\n".join([
+            "# Netscape HTTP Cookie File",
+            "#HttpOnly_.tiktok.com\tTRUE\t/\tTRUE\t0\tsessionid\tsid",
+            ".google.com\tTRUE\t/\tTRUE\t0\tSID\tgoogle-secret",
+        ]), encoding="utf-8")
+        s = Settings(download={"cookies_file": str(global_file)})
+        assert cookies_mod.cookie_jar(s, "tiktok") == {"sessionid": "sid"}
+
+
 class TestAppBoundPrecheck:
     def test_raises_when_abe_key_present(self, tmp_path, monkeypatch):
         local_state = tmp_path / "Local State"

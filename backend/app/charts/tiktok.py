@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import logging
 import random
-from pathlib import Path
 from urllib.parse import quote, urlencode
 
 import httpx
 
+from ..auth import cookies as cookies_mod
 from ..config import Settings
 from ..downloader.evil0ctal import Evil0ctalClient, Evil0ctalError
 from .base import ChartError, ChartProvider, TrendingItem, fmt_published
@@ -112,28 +112,14 @@ class TikTokProvider(ChartProvider):
         client = Evil0ctalClient(cfg.base_url, cfg.api_key)
         if not client.health():
             raise ChartError(f"Evil0ctal 签名服务不可达（{cfg.base_url}）：请先启动服务，见 README")
-        cookies_path = self.settings.cookie_file_for("tiktok")
-        if not cookies_path:
+        jar = cookies_mod.cookie_jar(self.settings, "tiktok")
+        if not jar:
             raise ChartError(
                 "TikTok 标签榜需要登录态：请在「设置 → 登录管理」导入或上传 TikTok cookies"
             )
-        jar = self._read_cookie_jar(cookies_path)
         if not jar.get("ttwid"):
             raise ChartError("TikTok cookies 无效（缺 ttwid）：请重新在「设置 → 登录管理」导入")
-        return client, "; ".join(f"{k}={v}" for k, v in jar.items())
-
-    @staticmethod
-    def _read_cookie_jar(path: Path) -> dict[str, str]:
-        """Netscape cookies.txt → {name: value}（同名取后出现的，与浏览器行为一致）。"""
-        jar: dict[str, str] = {}
-        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split("\t")
-            if len(parts) >= 7:
-                jar[parts[5]] = parts[6]
-        return jar
+        return client, cookies_mod.cookie_header(jar)
 
     # ---- 官方接口 ----
 
