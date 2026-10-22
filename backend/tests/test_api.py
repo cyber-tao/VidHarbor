@@ -72,16 +72,7 @@ class TestSettingsAPI:
         assert res["settings"]["download"]["max_height"] >= 0
         assert res["meta"]["hevc_encoder"] in ("libx265", "hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_videotoolbox")
 
-    def test_put_and_restore(self, client):
-        import json as _json
-
-        from app.db import get_sessionmaker
-        from app.models import AppSetting
-
-        sm = get_sessionmaker()
-        with sm() as s:
-            row = s.get(AppSetting, 1)
-            original = row.data if row is not None else None
+    def test_put_settings(self, client, restore_settings_overlay):
         r = client.put("/api/settings", json={"download": {"max_height": 480}})
         assert r.status_code == 200
         assert r.json()["settings"]["download"]["max_height"] == 480
@@ -89,22 +80,6 @@ class TestSettingsAPI:
         # 非法字段拒绝（未知 section 或未知字段 → 400/422）
         r1 = client.put("/api/settings", json={"server": {"port": 1234}})
         assert r1.status_code in (400, 422)
-        # 还原测试前的原始覆盖值（直接删行会连带清掉用户保存的其它设置，如兜底 API key）
-        from app.config import invalidate_settings_cache
-        with sm() as s:
-            row = s.get(AppSetting, 1)
-            if original is None:
-                if row is not None:
-                    s.delete(row)
-            else:
-                if row is None:
-                    s.add(AppSetting(id=1, data=original))
-                else:
-                    row.data = original
-            s.commit()
-        invalidate_settings_cache()
-        expected = 1080 if original is None else _json.loads(original).get("download", {}).get("max_height", 1080)
-        assert client.get("/api/settings").json()["settings"]["download"]["max_height"] == expected
 
 
 class TestSettingsWritePath:
@@ -462,16 +437,7 @@ class TestLibraryListQueries:
 
 
 class TestProxySettingsAPI:
-    def test_put_proxy_settings(self, client):
-        from app.config import invalidate_settings_cache
-        from app.db import get_sessionmaker
-        from app.models import AppSetting
-
-        sm = get_sessionmaker()
-        with sm() as s:
-            row = s.get(AppSetting, 1)
-            original = row.data if row is not None else None
-
+    def test_put_proxy_settings(self, client, restore_settings_overlay):
         r = client.put("/api/settings", json={"download": {
             "proxy": "http://host.docker.internal:7890",
             "proxy_platforms": ["youtube", "tiktok"],
@@ -480,20 +446,6 @@ class TestProxySettingsAPI:
         d = r.json()["settings"]["download"]
         assert d["proxy"] == "http://host.docker.internal:7890"
         assert d["proxy_platforms"] == ["youtube", "tiktok"]
-
-        # 还原测试前的原始覆盖值（不得把用户配置清成空值）
-        with sm() as s:
-            row = s.get(AppSetting, 1)
-            if original is None:
-                if row is not None:
-                    s.delete(row)
-            else:
-                if row is None:
-                    s.add(AppSetting(id=1, data=original))
-                else:
-                    row.data = original
-            s.commit()
-        invalidate_settings_cache()
 
 
 class TestTaskDedup:

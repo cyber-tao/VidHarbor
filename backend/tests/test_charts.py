@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from app.charts.base import ChartError
 from app.charts.bilibili import BilibiliProvider
 from app.charts.douyin import DouyinProvider
@@ -797,11 +799,9 @@ class TestDouyinSearch:
 
     def test_search_requires_cookies(self, tmp_path, monkeypatch):
         p = self._provider(tmp_path, monkeypatch, with_cookies=False)
-        try:
+        with pytest.raises(ChartError) as exc:
             p.search_videos("猫咪")
-            assert False, "should raise"
-        except ChartError as e:
-            assert "登录管理" in e.message
+        assert "登录管理" in exc.value.message
 
     def test_search_blocked_maps_to_cookies_hint(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
@@ -809,8 +809,6 @@ class TestDouyinSearch:
             lambda *a, **kw: _FakeResponse({"status_code": 2483, "data": []}),
         )
         p = self._provider(tmp_path, monkeypatch)
-        try:
+        with pytest.raises(ChartError) as exc:
             p.search_videos("猫咪")
-            assert False, "should raise"
-        except ChartError as e:
-            assert "拦截" in e.message and "cookies" in e.message
+        assert "拦截" in exc.value.message and "cookies" in exc.value.message

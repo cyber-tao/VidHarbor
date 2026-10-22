@@ -318,16 +318,7 @@ class TestShutdownAndRecovery:
 
 
 class TestSettingsConcurrencyAPI:
-    def test_roundtrip_and_restore(self, client):
-        from app.config import invalidate_settings_cache
-        from app.db import get_sessionmaker
-        from app.models import AppSetting
-
-        sm = get_sessionmaker()
-        with sm() as s:
-            row = s.get(AppSetting, 1)
-            original = row.data if row is not None else None
-
+    def test_roundtrip(self, client, restore_settings_overlay):
         r = client.put("/api/settings", json={
             "download": {"concurrency": 5, "per_platform_concurrency": 1},
             "library": {"transcode_concurrency": 3},
@@ -340,17 +331,3 @@ class TestSettingsConcurrencyAPI:
         assert client.get("/api/settings").json()["settings"]["download"]["per_platform_concurrency"] == 1
         # 越界值被 pydantic 拒绝（400）
         assert client.put("/api/settings", json={"download": {"concurrency": 99}}).status_code == 400
-
-        # 还原原始覆盖值
-        with sm() as s:
-            row = s.get(AppSetting, 1)
-            if original is None:
-                if row is not None:
-                    s.delete(row)
-            else:
-                if row is None:
-                    s.add(AppSetting(id=1, data=original))
-                else:
-                    row.data = original
-            s.commit()
-        invalidate_settings_cache()

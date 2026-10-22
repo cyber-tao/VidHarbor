@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.downloader.postprocess import SRT_LANG_RE, _is_auto, _lang_of, parse_fps, srt_to_vtt
+from app.downloader.postprocess import _is_auto, _lang_of, parse_fps, srt_to_vtt
 
 
 class TestLangOf:
@@ -12,7 +12,9 @@ class TestLangOf:
         assert _lang_of(Path("BV1xx.srt")) == "und"
 
     def test_regex_bounds(self):
-        assert SRT_LANG_RE.search("video.id.srt") is None or _lang_of(Path("video.id.srt"))
+        assert _lang_of(Path("video.x.srt")) == "und"
+        assert _lang_of(Path("video." + "a" * 20 + ".srt")) == "a" * 20
+        assert _lang_of(Path("video." + "a" * 21 + ".srt")) == "und"
 
 
 class TestIsAuto:
