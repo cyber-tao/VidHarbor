@@ -132,6 +132,14 @@ def video_detail(video_id: int):
         return _video_dict(v, detail=True)
 
 
+def _safe_exists(path) -> bool:
+    """exists() 在个别挂载卷上可能直接抛 OSError（如 Windows 宿主卷超长路径 ENAMETOOLONG），按不存在处理。"""
+    try:
+        return path.exists()
+    except OSError:
+        return False
+
+
 @router.get("/api/videos/{video_id}/file")
 def video_file(video_id: int, request: Request):
     settings = get_settings()
@@ -141,7 +149,7 @@ def video_file(video_id: int, request: Request):
         if v is None:
             raise HTTPException(status_code=404, detail="视频不存在")
         path = settings.library_root / v.video_path
-    if not path.exists():
+    if not _safe_exists(path):
         raise HTTPException(status_code=410, detail="视频文件缺失")
     size = path.stat().st_size
     range_header = request.headers.get("range")
@@ -186,7 +194,7 @@ def video_thumbnail(video_id: int):
         if v is None or not v.thumbnail_path:
             raise HTTPException(status_code=404, detail="无缩略图")
         path = settings.library_root / v.thumbnail_path
-    if not path.exists():
+    if not _safe_exists(path):
         raise HTTPException(status_code=404, detail="无缩略图")
     return FileResponse(path)
 

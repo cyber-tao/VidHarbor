@@ -18,7 +18,15 @@ class TestFormatSelector:
     def test_default_h265_prefers_hevc(self):
         eff = _eff(codec="h265")
         sel = build_format_selector(eff)
-        assert sel.startswith("bv*[vcodec^=hevc]")
+        # B站 HEVC 流的 codec tag 是 hvc1，两个前缀都要能命中
+        assert sel.startswith("(bv*[vcodec^=hevc]/bv*[vcodec^=hvc1])")
+
+    def test_audio_prefers_aac_over_container(self):
+        # B站 Hi-Res(FLAC) 封装在 m4a 容器里但无法 copy 进 MP4，必须优先 AAC 编码
+        eff = _eff()
+        sel = build_format_selector(eff)
+        first_audio = sel.split("+", 1)[1]
+        assert first_audio.startswith("(ba[acodec^=mp4a]")
 
     def test_h264_prefers_avc(self):
         eff = _eff(codec="h264")

@@ -1,0 +1,17 @@
+# NVIDIA GPU (NVENC) hardware transcoding.
+#
+# Host requirements: NVIDIA driver + NVIDIA Container Toolkit
+#   https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
+#   (Docker Desktop ≥ 4.29 on Windows enables this automatically with a recent driver)
+#
+# VidHarbor detects the encoder at runtime (Settings → hw_encoder = auto);
+# with the GPU visible, HEVC transcodes go through hevc_nvenc instead of libx265.
+services:
+  vidharbor:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

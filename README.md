@@ -8,6 +8,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 [![yt-dlp](https://img.shields.io/badge/engine-yt--dlp-FF0000?logo=youtube&logoColor=white)](https://github.com/yt-dlp/yt-dlp)
+[![Docker](https://img.shields.io/badge/deploy-Docker-2496ED?logo=docker&logoColor=white)]()
 [![License](https://img.shields.io/badge/license-TBD-gray)]()
 
 **English** · [简体中文](README.zh-CN.md)
@@ -22,7 +23,7 @@ library with consistent naming, and indexes all metadata & subtitles in SQLite. 
 console provides a dashboard, trending charts (category × time period), scheduled jobs, login
 management (Bilibili QR), a settings center, and live streaming logs.
 
-Runs on **Windows / Linux / macOS**.
+Runs on **Windows / Linux / macOS** — bare metal or **Docker** (x86-64 / ARM64).
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -86,8 +87,58 @@ Runs on **Windows / Linux / macOS**.
 
 ## 🚀 Quick Start
 
-Requirements: **Python 3.11+**, [uv](https://docs.astral.sh/uv/), **Node 18+**, and
-**ffmpeg** (with ffprobe).
+The quickest route is **Docker** (next section). Running bare metal requires
+**Python 3.11+**, [uv](https://docs.astral.sh/uv/), **Node 18+**, and **ffmpeg**
+(with ffprobe).
+
+### Docker (one command, cross-platform)
+
+Works on Linux / macOS / Windows, x86-64 and ARM64 — only Docker is needed:
+
+```bash
+./deploy.sh          # Linux / macOS / WSL / Git Bash  (or: bash deploy.sh)
+.\deploy.ps1         # Windows PowerShell
+# Manual equivalent: docker compose up -d --build
+```
+
+The script checks Docker/Compose (on Linux it can install Docker for you), creates `.env`
+(`PORT`, `TZ`, GPU mode, Evil0ctal toggles), deploys the **Evil0ctal fallback stack** by
+default, then builds the multi-stage image (Vue frontend → FastAPI + ffmpeg runtime) and
+starts everything. Open <http://127.0.0.1:8666>.
+
+**Evil0ctal fallback (Douyin/TikTok)** — with `WITH_EVIL0CTAL=1` (default) the script clones
+[Douyin_TikTok_Download_API](https://github.com/Evil0ctal/Douyin_TikTok_Download_API) v5 into
+`tools/dtk`, generates random secrets, and starts its stack (postgres/redis/api from prebuilt
+images + a locally built browser container; ~10 min / ~5 GB first run). The first-run wizard,
+an API key (`douyin:read` + `tiktok:read`) and wiring it into VidHarbor's settings are all
+**fully automatic** — no manual console steps. VidHarbor reaches it over a shared docker
+network (`http://api:8000`). The generated console credentials are stored in `tools/dtk/.env`
+(set up SSH tunneling to open the console on a server). Set `WITH_EVIL0CTAL=0` to skip the
+stack entirely; filling `EVIL0CTAL_API_KEY` in `.env` switches to manual key management.
+
+**GPU transcoding** — set `GPU=` in `.env`:
+
+| Value | Encoder | Requirement |
+|---|---|---|
+| `nvidia` | `hevc_nvenc` | **Native Linux host** + NVIDIA driver + [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). Note: WSL2 / Docker Desktop GPU passthrough carries CUDA only — no NVENC — so hardware transcoding isn't available there (auto mode falls back to CPU) |
+| `intel` | `hevc_qsv` | Linux host with Intel iGPU (`/dev/dri` passthrough) |
+| `auto` | detect | `nvidia-smi` + docker runtime (Linux only), else `/dev/dri`, else CPU |
+| `cpu` | `libx265` | none (fallback) |
+
+The app probes and test-encodes at runtime (`hw_encoder=auto`), so no other config is needed.
+AMD GPUs: the bundled Debian ffmpeg has no AMF encoder — AMD falls back to CPU transcoding.
+
+- Data persists in bind mounts: `./data` (SQLite DB, cookies, logs) and `./library` (videos) —
+  the same layout as a bare-metal install
+- `config.toml` is optional (most settings live in the web Settings page); container config
+  can also be injected via `VIDHARBOR_<section>__<field>` env vars — priority:
+  `config.toml` < env vars < Settings page. `[server]` host/port are fixed to `0.0.0.0:8666`
+  in the container — change the **host** port via `PORT` in `.env`
+- Evil0ctal running on the host (not via the deploy script): set
+  `EVIL0CTAL_BASE_URL=http://host.docker.internal:8000` in `.env`
+- Manage with `./deploy.sh logs | status | update | backup | down | restart`;
+  build & push a multi-arch image (`linux/amd64` + `linux/arm64`) with
+  `./deploy.sh buildx <registry/image:tag>`
 
 ### Windows
 
@@ -109,7 +160,7 @@ uv run python run.py
 ```bash
 sudo apt update && sudo apt install -y ffmpeg  # or a static build: https://johnvansickle.com/ffmpeg/
 curl -LsSf https://astral.sh/uv/install.sh | sh
-cd vidlib/backend && uv sync
+cd vidharbor/backend && uv sync
 cd ../frontend && npm install && npm run build
 cd ../backend && uv run python run.py
 ```
@@ -118,7 +169,7 @@ cd ../backend && uv run python run.py
 
 ```bash
 brew install ffmpeg uv
-cd vidlib/backend && uv sync
+cd vidharbor/backend && uv sync
 cd ../frontend && npm install && npm run build
 cd ../backend && uv run python run.py
 ```
@@ -158,7 +209,7 @@ Description=VidHarbor
 After=network.target
 
 [Service]
-WorkingDirectory=%h/vidlib/backend
+WorkingDirectory=%h/vidharbor/backend
 ExecStart=%h/.local/bin/uv run python run.py
 Restart=on-failure
 
@@ -215,17 +266,22 @@ the Evil0ctal signing service (single-video downloads usually unaffected).
 yt-dlp's Douyin support is currently blocked by the `a_bogus` signature requirement (verified
 2026-10). On failure VidHarbor automatically switches to a local deployment of
 [Evil0ctal/Douyin_TikTok_Download_API](https://github.com/Evil0ctal/Douyin_TikTok_Download_API)
-v5 (watermark-free direct links; also backs up TikTok):
+v5 (watermark-free direct links; also backs up TikTok).
+
+**Docker deployments get this automatically** — the deploy script clones and starts the stack
+and wires VidHarbor to it (see the Docker section above). The steps below are for bare-metal
+installs:
 
 ```bash
-# Full docker-compose stack (first run ~10 min build, ~5 GB disk / 8 GB RAM)
+# Full docker-compose stack (first run ~10 min, ~5 GB disk / 8 GB RAM)
 git clone https://github.com/Evil0ctal/Douyin_TikTok_Download_API.git tools/dtk
 cd tools/dtk
 # Write .env per documents/zh/01-quickstart.md (DTK_SECRET_KEY / POSTGRES_PASSWORD /
-#   REDIS_PASSWORD / DTK_DATABASE_URL / DTK_REDIS_URL), then:
-CLOAKBROWSER_COMMIT=fbf005bc199920b592df17ac4d489324e29d56d8 \
-  docker compose -p dtk -f docker/compose.yml --profile browser up -d --build
-docker compose -p dtk -f docker/compose.yml logs api   # grab /setup?token= from the banner
+#   REDIS_PASSWORD / DTK_DATABASE_URL / DTK_REDIS_URL + prebuilt DTK_IMAGE=evil0ctal/
+#   douyin_tiktok_download_api), then:
+COMPOSE_ENV_FILES=.env docker compose -p dtk -f docker/compose.yml \
+  --profile browser up -d --build --wait
+COMPOSE_ENV_FILES=.env docker compose -p dtk -f docker/compose.yml logs api   # /setup?token=
 ```
 
 Setup wizard (open the setup link in a browser): create admin → skip proxy → mint a *douyin*
@@ -255,7 +311,7 @@ falls back to the cache and shows a degradation banner without affecting anythin
 ## 📁 Project Structure
 
 ```
-vidlib/
+vidharbor/
 ├── backend/
 │   ├── app/
 │   │   ├── api/            # REST endpoints: tasks, videos, charts, schedules,
@@ -270,6 +326,9 @@ vidlib/
 │   └── run.py              # cross-platform entry point
 ├── frontend/               # Vue 3 + Vite + Tailwind + Naive UI + ECharts + Pinia
 ├── config.example.toml     # copy to config.toml (git-ignored)
+├── Dockerfile              # multi-stage image: frontend build + FastAPI/ffmpeg runtime
+├── docker-compose.yml      # Docker deployment (bind-mounts ./data and ./library)
+├── deploy.sh / deploy.ps1  # one-click deploy: Linux/macOS/WSL/Git Bash | Windows PowerShell
 ├── data/                   # runtime: SQLite DB, cookies, logs (git-ignored)
 ├── library/                # your video library (git-ignored)
 └── tools/                  # local Evil0ctal fallback clone (git-ignored)

@@ -1,0 +1,36 @@
+# Never ship local state / secrets / VCS into the build context
+.git
+.gitignore
+.dockerignore
+.env
+config.toml
+
+# Runtime data (bind-mounted at runtime, not baked into the image)
+data/
+library/
+backup/
+tools/
+
+# Local agent workspaces / research scratch
+.zcode/
+.video_agent/
+.vscode/
+.idea/
+
+# Python build artifacts
+**/__pycache__/
+*.py[cod]
+backend/.venv/
+backend/.pytest_cache/
+backend/.ruff_cache/
+backend/.mypy_cache/
+
+# Node build artifacts (rebuilt inside the image)
+frontend/node_modules/
+frontend/dist/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log

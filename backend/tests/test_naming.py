@@ -24,6 +24,19 @@ class TestSanitize:
     def test_chinese_preserved(self):
         assert sanitize("【4K】治愈系风景 / 第1期", 120, "fb") == "【4K】治愈系风景 第1期"
 
+    def test_truncates_by_utf8_bytes_not_chars(self):
+        # 文件系统限制的是单组件字节数（255）：120 个中文字符 = 360 字节必须被截到字节上限内
+        out = sanitize("影" * 120, 120, "fb")
+        assert len(out.encode("utf-8")) <= 120
+        assert out == "影" * 40
+
+    def test_long_cjk_filename_stays_under_fs_component_limit(self):
+        # 抖音长标题 + 长标签场景：最终文件名（单个路径组件）必须 ≤255 字节
+        title = "童话故事《小猫钓鱼》，教孩子学会耐心 #小猫钓鱼 #我的长长长假 #长长长假带娃指南 " * 3
+        name = build_filename("{upload_date} - {title} [{id}]", "douyin", "小花猪睡前故事",
+                              "20260929", title, "7690900461457763761")
+        assert len(name.encode("utf-8")) <= 255
+
 
 class TestSanitizeDate:
     def test_valid(self):

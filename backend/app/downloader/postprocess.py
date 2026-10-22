@@ -294,8 +294,8 @@ def ingest(
         s_target = target.with_name(f"{target.stem}.{suffix}.srt")
         if s_target.exists():
             s_target.unlink()
-        shutil.move(str(srt), str(s_target))
         content = srt.read_text(encoding="utf-8-sig", errors="replace")
+        shutil.move(str(srt), str(s_target))
         session.add(Subtitle(
             video_id=video.id, lang=lang, auto_generated=auto,
             format="srt", content=content, file_path=rel(s_target),

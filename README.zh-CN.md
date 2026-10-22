@@ -8,6 +8,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 [![yt-dlp](https://img.shields.io/badge/engine-yt--dlp-FF0000?logo=youtube&logoColor=white)](https://github.com/yt-dlp/yt-dlp)
+[![Docker](https://img.shields.io/badge/deploy-Docker-2496ED?logo=docker&logoColor=white)]()
 [![License](https://img.shields.io/badge/license-TBD-gray)]()
 
 [English](README.md) · **简体中文**
@@ -19,7 +20,8 @@
 VidHarbor（影坞）下载 **YouTube / 哔哩哔哩 / TikTok / 抖音** 视频，统一转为 MP4
 （H.265/H.264 + AAC + faststart，硬件编码优先），以规范命名存入本地视频库；元数据与
 字幕全部入库（SQLite），并提供带仪表盘、热门榜单（分类×时间段）、定时任务、登录管理
-（B站扫码）、设置中心、实时日志的 Web 控制台。支持 **Windows / Linux / macOS**。
+（B站扫码）、设置中心、实时日志的 Web 控制台。支持 **Windows / Linux / macOS**，
+可裸机运行，也可 **Docker** 部署（x86-64 / ARM64）。
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -59,7 +61,54 @@ VidHarbor（影坞）下载 **YouTube / 哔哩哔哩 / TikTok / 抖音** 视频�
 
 ## 🚀 快速开始
 
-前置要求：**Python 3.11+**、[uv](https://docs.astral.sh/uv/)、**Node 18+**、**ffmpeg**（含 ffprobe）。
+最快的途径是 **Docker**（下一节）。裸机运行需要：**Python 3.11+**、
+[uv](https://docs.astral.sh/uv/)、**Node 18+**、**ffmpeg**（含 ffprobe）。
+
+### Docker（一条命令，跨平台）
+
+适用于 Linux / macOS / Windows，x86-64 与 ARM64 —— 只需装好 Docker：
+
+```bash
+./deploy.sh          # Linux / macOS / WSL / Git Bash（或 bash deploy.sh）
+.\deploy.ps1         # Windows PowerShell
+# 手动等价命令：docker compose up -d --build
+```
+
+脚本会检查 Docker/Compose（Linux 下可代为安装 Docker）、生成 `.env`（端口/时区/GPU/
+Evil0ctal 开关），默认同时部署 **Evil0ctal 兜底服务**，然后构建多阶段镜像（Vue 前端
+构建 → FastAPI + ffmpeg 运行时）并启动全部服务。打开 <http://127.0.0.1:8666>。
+
+**Evil0ctal 兜底（抖音/TikTok）** —— `WITH_EVIL0CTAL=1`（默认）时脚本会克隆
+[Douyin_TikTok_Download_API](https://github.com/Evil0ctal/Douyin_TikTok_Download_API) v5
+到 `tools/dtk`，生成随机密钥并启动其栈（postgres/redis/api 用预构建镜像，浏览器容器
+本地构建；首次约 10 分钟、约 5GB）。**首次初始化向导、创建 API Key
+（douyin:read + tiktok:read）并接入 VidHarbor 设置全部自动完成，无需打开控制台手动
+操作**。VidHarbor 自动通过共享 docker 网络指向它（`http://api:8000`）。控制台账号密码
+存于 `tools/dtk/.env`（服务器上打开控制台建议走 SSH 隧道）。设 `WITH_EVIL0CTAL=0`
+可完全跳过该栈；在 `.env` 手动填 `EVIL0CTAL_API_KEY` 则切换为手动 Key 管理。
+
+**GPU 硬件转码** —— 在 `.env` 里设置 `GPU=`：
+
+| 取值 | 编码器 | 要求 |
+|---|---|---|
+| `nvidia` | `hevc_nvenc` | **原生 Linux 宿主机** + NVIDIA 驱动 + [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)。注意：WSL2 / Docker Desktop 的 GPU 直通只含 CUDA、不含 NVENC 视频编码器，此类环境无法硬件转码（auto 模式自动回退 CPU） |
+| `intel` | `hevc_qsv` | Linux 宿主机 + Intel 核显（直通 `/dev/dri`） |
+| `auto` | 自动探测 | 原生 Linux 上 nvidia-smi 且 docker 运行时可用 → nvidia；有 `/dev/dri` → intel；否则 CPU |
+| `cpu` | `libx265` | 无（回退） |
+
+应用运行时会自行探测并试编码（`hw_encoder=auto`），无需其他配置。AMD 显卡注意：镜像
+内置的 Debian ffmpeg 不含 AMF 编码器，AMD 会回退 CPU 转码。
+
+- 数据落在绑定挂载目录，与裸机安装完全一致：`./data`（SQLite 库、cookies、日志）与
+  `./library`（视频）
+- `config.toml` 可选（绝大多数设置在 Web 设置页即可修改）；容器配置也可用
+  `VIDHARBOR_<section>__<field>` 环境变量注入，优先级：`config.toml` < 环境变量 <
+  设置页。容器内 `[server]` 固定绑定 `0.0.0.0:8666` —— 改**宿主**端口请用 `.env` 的 `PORT`
+- 手动部署在宿主机上的 Evil0ctal（非脚本部署）：`.env` 里设
+  `EVIL0CTAL_BASE_URL=http://host.docker.internal:8000`
+- 日常管理：`./deploy.sh logs | status | update | backup | down | restart`；
+  构建并推送多架构镜像（`linux/amd64` + `linux/arm64`）：
+  `./deploy.sh buildx <registry/image:tag>`
 
 ### Windows
 
@@ -81,7 +130,7 @@ uv run python run.py
 ```bash
 sudo apt update && sudo apt install -y ffmpeg  # 或静态构建: https://johnvansickle.com/ffmpeg/
 curl -LsSf https://astral.sh/uv/install.sh | sh
-cd vidlib/backend && uv sync
+cd vidharbor/backend && uv sync
 cd ../frontend && npm install && npm run build
 cd ../backend && uv run python run.py
 ```
@@ -90,7 +139,7 @@ cd ../backend && uv run python run.py
 
 ```bash
 brew install ffmpeg uv
-cd vidlib/backend && uv sync
+cd vidharbor/backend && uv sync
 cd ../frontend && npm install && npm run build
 cd ../backend && uv run python run.py
 ```
@@ -128,7 +177,7 @@ Description=VidHarbor
 After=network.target
 
 [Service]
-WorkingDirectory=%h/vidlib/backend
+WorkingDirectory=%h/vidharbor/backend
 ExecStart=%h/.local/bin/uv run python run.py
 Restart=on-failure
 
@@ -176,19 +225,23 @@ Web「设置 → 登录管理」为每个平台维护独立 cookies（`data/cook
 
 ### 抖音 / TikTok 兜底引擎（Evil0ctal v5）
 
-yt-dlp 的抖音支持已被 `a_bogus` 签名拦截失效（2026-10 实测），失败时自动切换本地
-[Evil0ctal/Douyin_TikTok_Download_API](https://github.com/Evil0ctal/Douyin_TikTok_Download_API)
-v5（无水印直链，TikTok 同样可兜底）：
+yt-dlp 的抖音支持目前被 `a_bogus` 签名要求挡住（2026-10 实测）。失败时 VidHarbor 会
+自动切换到 [Evil0ctal/Douyin_TikTok_Download_API](https://github.com/Evil0ctal/Douyin_TikTok_Download_API)
+v5 的本地部署（无水印直链，同时兜底 TikTok）。
+
+**Docker 部署无需手动操作** —— 部署脚本会自动克隆并启动该栈、自动接线（见上文
+Docker 章节）。以下为裸机安装的手动步骤：
 
 ```bash
-# Docker 全栈部署（首次约 10 分钟 + 镜像构建，需 ~5GB 磁盘 / 8GB 内存）
+# 完整 docker-compose 栈（首次约 10 分钟，约 5GB 磁盘 / 8GB 内存）
 git clone https://github.com/Evil0ctal/Douyin_TikTok_Download_API.git tools/dtk
 cd tools/dtk
-# 按 documents/zh/01-quickstart.md 写 .env（DTK_SECRET_KEY / POSTGRES_PASSWORD / REDIS_PASSWORD
-#   / DTK_DATABASE_URL / DTK_REDIS_URL），然后：
-CLOAKBROWSER_COMMIT=fbf005bc199920b592df17ac4d489324e29d56d8 \
-  docker compose -p dtk -f docker/compose.yml --profile browser up -d --build
-docker compose -p dtk -f docker/compose.yml logs api   # 从日志横幅拿 /setup?token= 初始化链接
+# 按 documents/zh/01-quickstart.md 写 .env（DTK_SECRET_KEY / POSTGRES_PASSWORD /
+#   REDIS_PASSWORD / DTK_DATABASE_URL / DTK_REDIS_URL，加预构建 DTK_IMAGE=evil0ctal/
+#   douyin_tiktok_download_api），然后：
+COMPOSE_ENV_FILES=.env docker compose -p dtk -f docker/compose.yml \
+  --profile browser up -d --build --wait
+COMPOSE_ENV_FILES=.env docker compose -p dtk -f docker/compose.yml logs api   # 拿 /setup?token=
 ```
 
 初始化向导（浏览器打开 setup 链接）：创建管理员 → 跳过代理 → 铸造 douyin 身份（TikTok
@@ -216,7 +269,7 @@ docker compose -p dtk -f docker/compose.yml logs api   # 从日志横幅拿 /set
 ## 📁 目录结构
 
 ```
-vidlib/
+vidharbor/
 ├── backend/
 │   ├── app/
 │   │   ├── api/            # REST 接口: tasks / videos / charts / schedules /
@@ -231,6 +284,9 @@ vidlib/
 │   └── run.py              # 跨平台启动入口
 ├── frontend/               # Vue 3 + Vite + Tailwind + Naive UI + ECharts + Pinia
 ├── config.example.toml     # 复制为 config.toml（git 忽略）
+├── Dockerfile              # 多阶段镜像：前端构建 + FastAPI/ffmpeg 运行时
+├── docker-compose.yml      # Docker 部署（绑定挂载 ./data 与 ./library）
+├── deploy.sh / deploy.ps1  # 一键部署：Linux/macOS/WSL/Git Bash | Windows PowerShell
 ├── data/                   # 运行时: SQLite 数据库 / cookies / 日志（git 忽略）
 ├── library/                # 本地视频库（git 忽略）
 └── tools/                  # Evil0ctal 兜底服务本地克隆目录（git 忽略）

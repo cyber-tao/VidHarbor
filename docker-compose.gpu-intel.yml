@@ -1,0 +1,10 @@
+# Intel iGPU (Quick Sync Video) hardware transcoding — Linux hosts.
+# Passes the VAAPI/QSV device nodes into the container; the bundled ffmpeg
+# carries hevc_qsv (libmfx) and probes it at runtime.
+#
+# Note for AMD GPUs: the Debian ffmpeg in this image has no AMF encoder, so AMD
+# cards still fall back to CPU (libx265) transcoding.
+services:
+  vidharbor:
+    devices:
+      - /dev/dri:/dev/dri

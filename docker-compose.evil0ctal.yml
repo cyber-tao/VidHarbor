@@ -1,0 +1,20 @@
+# Evil0ctal (Douyin_TikTok_Download_API v5) integration.
+# Attach VidHarbor to the dtk stack deployed by deploy.sh / deploy.ps1 so the
+# fallback engine is reached via the internal docker network (works on any OS,
+# no host port binding needed). The fallback base URL becomes http://api:8000.
+#
+# Requires the external network `dtk_edge` to exist (the deploy script creates
+# it together with the dtk stack):
+#   docker network create dtk_edge
+services:
+  vidharbor:
+    networks:
+      - default
+      - dtk_edge
+    environment:
+      VIDHARBOR_EVIL0CTAL__BASE_URL: ${EVIL0CTAL_BASE_URL:-http://api:8000}
+
+networks:
+  dtk_edge:
+    name: dtk_edge
+    external: true
