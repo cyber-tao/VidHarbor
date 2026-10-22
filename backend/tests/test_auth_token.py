@@ -37,6 +37,21 @@ def test_accepts_header_and_query(client, monkeypatch):
     assert client.get("/api/stats?token=s3cret").status_code == 200
 
 
+def test_non_ascii_supplied_token_is_401_not_500(client, monkeypatch):
+    from app import main
+
+    monkeypatch.setattr(main, "_AUTH_TOKEN", "s3cret")
+    assert client.get("/api/stats", params={"token": "令牌"}).status_code == 401
+
+
+def test_non_ascii_configured_token(client, monkeypatch):
+    from app import main
+
+    monkeypatch.setattr(main, "_AUTH_TOKEN", "中文令牌")
+    assert client.get("/api/stats", params={"token": "中文令牌"}).status_code == 200
+    assert client.get("/api/stats", params={"token": "wrong"}).status_code == 401
+
+
 def test_health_always_open(client, monkeypatch):
     from app import main
 

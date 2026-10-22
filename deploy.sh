@@ -335,11 +335,25 @@ ensure_dtk_apikey() {
 
 # 同步兜底引擎设置到 VidHarbor（地址 → 容器网络；API Key → 自动创建的那把；仅在有差异时写入）
 sync_evil0ctal_settings() {
-  local port="$1" key="${2:-}" cur cur_url cur_key payload i
+  local port="$1" key="${2:-}" url cur cur_url cur_key payload resp code token i
+  local -a auth=()
+  url="http://127.0.0.1:${port}/api/settings"
+  # .env 设置了 TOKEN 时 /api 需要鉴权
+  token="$(env_val TOKEN '')"
+  [[ -n "$token" ]] && auth=(-H "X-Vidharbor-Token: $token")
   cur=""
   for i in 1 2 3 4 5 6; do
-    cur="$(curl -sf "http://127.0.0.1:${port}/api/settings" 2>/dev/null || true)"
-    [[ -n "$cur" ]] && break
+    # ${auth[@]+...}：bash 3.2（macOS）在 set -u 下展开空数组会报 unbound variable
+    resp="$(curl -s ${auth[@]+"${auth[@]}"} -w '\n%{http_code}' "$url" 2>/dev/null || true)"
+    code="${resp##*$'\n'}"
+    if [[ "$code" == "200" ]]; then
+      cur="${resp%$'\n'*}"
+      break
+    fi
+    if [[ "$code" == "401" ]]; then
+      warn "VidHarbor 拒绝了设置请求（401）：请核对 .env 中的 TOKEN —— 跳过兜底引擎同步"
+      return 0
+    fi
     sleep 5
   done
   [[ -n "$cur" ]] || { warn "VidHarbor API 未就绪，跳过兜底引擎同步"; return 0; }
@@ -354,9 +368,11 @@ sync_evil0ctal_settings() {
     payload="${payload:+$payload,}\"api_key\":\"$key\""
   fi
   [[ -n "$payload" ]] || return 0
-  if curl -sf -X PUT "http://127.0.0.1:${port}/api/settings" -H 'content-type: application/json' \
+  if curl -sf ${auth[@]+"${auth[@]}"} -X PUT "$url" -H 'content-type: application/json' \
        -d "{\"evil0ctal\":{$payload}}" >/dev/null 2>&1; then
     info "兜底引擎设置已同步（地址=http://api:8000${key:+，API Key 已更新}，约 1 分钟内生效）"
+  else
+    warn "兜底引擎设置同步失败 —— 请在 VidHarbor 设置页手动填写地址与 API Key"
   fi
 }
 

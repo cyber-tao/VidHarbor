@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-import { authUrl } from './api.js'
+import { api, authUrl } from './api.js'
 
 /** SSE 实时事件：任务进度 / 日志 / 统计刷新信号 */
 export const useEvents = defineStore('events', {
@@ -43,9 +43,10 @@ export const useEvents = defineStore('events', {
     },
     async loadTasks() {
       try {
-        const res = await fetch('/api/tasks').then((r) => r.json())
-        this.tasks = {}
-        for (const t of res.tasks) this.tasks[t.id] = t
+        const res = await api.listTasks()
+        const next = {}
+        for (const t of res.tasks) next[t.id] = t
+        this.tasks = next
       } catch { /* SSE 会兜底 */ }
     },
     removeLocalTask(id) { delete this.tasks[id] },

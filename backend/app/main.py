@@ -87,7 +87,8 @@ async def _require_token(request: Request) -> None:
     if not _AUTH_TOKEN:
         return
     supplied = request.headers.get("X-Vidharbor-Token") or request.query_params.get("token", "")
-    if not secrets.compare_digest(_AUTH_TOKEN, supplied):
+    # 按字节比较：compare_digest 对含非 ASCII 字符的 str 会抛 TypeError（变成 500）
+    if not secrets.compare_digest(_AUTH_TOKEN.encode(), supplied.encode()):
         raise HTTPException(status_code=401, detail="缺少或无效的访问令牌")
 
 

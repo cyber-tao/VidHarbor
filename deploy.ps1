@@ -328,9 +328,22 @@ function Ensure-DtkApikey {
 # Sync the fallback engine settings into VidHarbor (URL -> container network; API key -> the
 # automatically created one; writes only when something differs)
 function Sync-Evil0ctalSettings([string]$port, [string]$key) {
+    $uri = "http://127.0.0.1:$port/api/settings"
+    # With TOKEN set in .env every /api call must carry it
+    $headers = @{}
+    $token = Get-EnvValue "TOKEN" ""
+    if ($token) { $headers["X-Vidharbor-Token"] = $token }
     $cur = $null
     foreach ($i in 1..6) {
-        try { $cur = Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/settings" -TimeoutSec 5; break } catch { Start-Sleep -Seconds 5 }
+        try { $cur = Invoke-RestMethod -Uri $uri -Headers $headers -TimeoutSec 5; break } catch {
+            $status = 0
+            if ($_.Exception.Response) { $status = [int]$_.Exception.Response.StatusCode }
+            if ($status -eq 401) {
+                Warn "VidHarbor rejected the settings request (401) - check TOKEN in .env; skipped fallback engine sync"
+                return
+            }
+            Start-Sleep -Seconds 5
+        }
     }
     if (-not $cur) { Warn "VidHarbor API not ready - skipped fallback engine sync"; return }
     $evil = $cur.settings.evil0ctal
@@ -342,7 +355,7 @@ function Sync-Evil0ctalSettings([string]$port, [string]$key) {
     if ($patch.Count -eq 0) { return }
     try {
         $body = @{ evil0ctal = $patch } | ConvertTo-Json
-        Invoke-RestMethod -Method Put -Uri "http://127.0.0.1:$port/api/settings" `
+        Invoke-RestMethod -Method Put -Uri $uri -Headers $headers `
             -ContentType "application/json" -Body $body -TimeoutSec 5 | Out-Null
         Info "Fallback engine settings synced (URL=http://api:8000$(if ($key) {', API key updated'}); effective within ~1 min)"
     } catch {
