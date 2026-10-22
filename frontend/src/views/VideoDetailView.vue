@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch, nextTick } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useRoute, useRouter } from 'vue-router'
-import { api } from '../api.js'
+import { api, authUrl } from '../api.js'
 import { fmtCount, fmtDateTime, fmtDuration, fmtSize, fmtDate } from '../format.js'
 import PlatformTag from '../components/PlatformTag.vue'
 
@@ -72,7 +72,7 @@ async function viewSubtitle(s) {
   subTitle.value = `${s.lang}${s.auto_generated ? '（自动生成）' : ''}`
   subContent.value = '加载中…'
   try {
-    const res = await fetch(`/api/videos/${video.value.id}/subtitles/${s.id}`)
+    const res = await fetch(authUrl(`/api/videos/${video.value.id}/subtitles/${s.id}`))
     subContent.value = await res.text()
   } catch (e) {
     subContent.value = '加载失败: ' + e.message
@@ -119,10 +119,10 @@ const codecLabel = computed(() => {
     <template v-else>
       <!-- 播放器 -->
       <div class="overflow-hidden rounded-xl border border-zinc-800 bg-black">
-        <video v-if="video.file_exists" ref="videoEl" controls :poster="`/api/videos/${video.id}/thumbnail`" class="aspect-video w-full">
-          <source :src="`/api/videos/${video.id}/file`" type="video/mp4" />
+        <video v-if="video.file_exists" ref="videoEl" controls :poster="authUrl(`/api/videos/${video.id}/thumbnail`)" class="aspect-video w-full">
+          <source :src="authUrl(`/api/videos/${video.id}/file`)" type="video/mp4" />
           <track v-for="s in subList" :key="s.id"
-            :src="`/api/videos/${video.id}/subtitles/${s.id}/vtt`"
+            :src="authUrl(`/api/videos/${video.id}/subtitles/${s.id}/vtt`)"
             :srclang="s.lang" :label="s.lang + (s.auto_generated ? ' (auto)' : '')"
             kind="subtitles" />
           您的浏览器不支持视频播放。

@@ -128,6 +128,19 @@ stack entirely; filling `EVIL0CTAL_API_KEY` in `.env` switches to manual key man
 The app probes and test-encodes at runtime (`hw_encoder=auto`), so no other config is needed.
 AMD GPUs: the bundled Debian ffmpeg has no AMF encoder — AMD falls back to CPU transcoding.
 
+**Access control (recommended when exposed to LAN/WAN)** — by default there is no
+authentication and the port binds `0.0.0.0` (LAN reachable). If the network is not
+fully trusted, set in `.env`:
+
+```bash
+TOKEN=<long random string>   # every API call except /api/health then requires the token
+BIND_IP=127.0.0.1            # bind the port to localhost only (default 0.0.0.0)
+```
+
+With `TOKEN` set, open `http://<host>:8666/?token=<token>` once — the frontend remembers
+it and attaches it automatically; programmatic callers use the `X-Vidharbor-Token`
+header or the `?token=` query parameter.
+
 - Data persists in bind mounts: `./data` (SQLite DB, cookies, logs) and `./library` (videos) —
   the same layout as a bare-metal install
 - `config.toml` is optional (most settings live in the web Settings page); container config

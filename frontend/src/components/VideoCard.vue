@@ -2,10 +2,11 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { fmtDuration, fmtSize, platformLabel, platformColor } from '../format.js'
+import { authUrl } from '../api.js'
 
 const props = defineProps({ video: { type: Object, required: true } })
 const router = useRouter()
-const thumbUrl = computed(() => `/api/videos/${props.video.id}/thumbnail`)
+const thumbUrl = computed(() => authUrl(`/api/videos/${props.video.id}/thumbnail`))
 </script>
 
 <template>

@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import secrets
 import shutil
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from .api import auth, charts, events, schedules, settings as settings_api, stats, tasks, videos
@@ -75,9 +77,23 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="VidHarbor", version="0.2.0", lifespan=lifespan)
 
+# 可选访问令牌：设置 VIDHARBOR_TOKEN 环境变量后，除 /api/health 外的所有
+# API 需携带令牌（X-Vidharbor-Token 头或 ?token= 查询参数，后者供 SSE/媒体标签用）。
+# 不配置时行为不变（本机部署默认）。不进 Settings/DB，避免被设置页回显或覆盖。
+_AUTH_TOKEN = os.environ.get("VIDHARBOR_TOKEN", "").strip()
+
+
+async def _require_token(request: Request) -> None:
+    if not _AUTH_TOKEN:
+        return
+    supplied = request.headers.get("X-Vidharbor-Token") or request.query_params.get("token", "")
+    if not secrets.compare_digest(_AUTH_TOKEN, supplied):
+        raise HTTPException(status_code=401, detail="缺少或无效的访问令牌")
+
+
 for r in (tasks.router, videos.router, charts.router, stats.router, events.router,
           settings_api.router, auth.router, schedules.router):
-    app.include_router(r)
+    app.include_router(r, dependencies=[Depends(_require_token)])
 
 
 @app.get("/api/health")

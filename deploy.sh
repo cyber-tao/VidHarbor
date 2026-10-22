@@ -134,6 +134,10 @@ EVIL0CTAL_API_KEY=
 PROXY=
 # 走代理的平台（JSON 数组）：["youtube","tiktok","bilibili","douyin"] 任选
 PROXY_PLATFORMS=
+# 可选访问令牌：设置后所有 API 需带令牌（浏览器首次访问 http://<host>:<port>/?token=<令牌>）
+TOKEN=
+# 端口绑定的网卡地址：默认 0.0.0.0（局域网可访问）；仅本机访问设 127.0.0.1
+BIND_IP=0.0.0.0
 EOF
     info "已生成 .env（可编辑 PORT/TZ/GPU/WITH_EVIL0CTAL 后重新 ./deploy.sh up）"
   fi
@@ -145,6 +149,8 @@ EOF
   grep -q '^EVIL0CTAL_API_KEY=' .env || echo "EVIL0CTAL_API_KEY=" >> .env
   grep -q '^PROXY=' .env           || echo "PROXY=" >> .env
   grep -q '^PROXY_PLATFORMS=' .env || echo "PROXY_PLATFORMS=" >> .env
+  grep -q '^TOKEN=' .env           || echo "TOKEN=" >> .env
+  grep -q '^BIND_IP=' .env         || echo "BIND_IP=0.0.0.0" >> .env
 }
 
 current_port() { env_val PORT "$DEFAULT_PORT"; }

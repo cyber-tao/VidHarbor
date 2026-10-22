@@ -7,7 +7,7 @@
 #   docker-compose.gpu-intel.yml  — Intel iGPU (QSV) transcoding
 #
 # Overrides live in .env (created by the deploy script, or create it yourself):
-#   PORT / TZ / GPU / WITH_EVIL0CTAL / EVIL0CTAL_API_KEY / EVIL0CTAL_BASE_URL
+#   PORT / TZ / GPU / WITH_EVIL0CTAL / EVIL0CTAL_API_KEY / EVIL0CTAL_BASE_URL / TOKEN / BIND_IP
 
 name: vidharbor
 
@@ -20,9 +20,13 @@ services:
     container_name: vidharbor
     restart: unless-stopped
     ports:
-      - "${PORT:-8666}:8666"
+      # BIND_IP 默认 0.0.0.0（保持既有部署行为）；仅本机访问可设 127.0.0.1
+      - "${BIND_IP:-0.0.0.0}:${PORT:-8666}:8666"
     environment:
       TZ: ${TZ:-Asia/Shanghai}
+      # Optional access token: when set (non-empty), every /api call except
+      # /api/health requires it (X-Vidharbor-Token header or ?token= query).
+      VIDHARBOR_TOKEN: ${TOKEN:-}
       # Evil0ctal fallback engine. Standalone default points at a service on the
       # host (Docker Desktop resolves host.docker.internal; Linux needs the
       # extra_hosts entry below). docker-compose.evil0ctal.yml overrides the

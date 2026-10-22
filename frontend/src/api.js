@@ -1,6 +1,27 @@
+// 可选访问令牌：服务端设置 VIDHARBOR_TOKEN 后，首次经 /?token=xxx 访问时由 main.js 存入
+const TOKEN_KEY = 'vidharbor_token'
+
+export function getToken() { return localStorage.getItem(TOKEN_KEY) || '' }
+
+export function setToken(t) {
+  t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY)
+}
+
+function authHeaders(extra = {}) {
+  const t = getToken()
+  return t ? { ...extra, 'X-Vidharbor-Token': t } : extra
+}
+
+// <video>/<track>/缩略图等标签 URL 无法带自定义头，改用 ?token= 查询参数
+export function authUrl(url) {
+  const t = getToken()
+  if (!t) return url
+  return url + (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(t)
+}
+
 async function req(path, options = {}) {
   const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     ...options,
   })
   if (!res.ok) {
@@ -49,7 +70,7 @@ export const api = {
   uploadCookies: (platform, file) => {
     const form = new FormData()
     form.append('file', file)
-    return fetch(`/api/auth/cookies/${platform}/upload`, { method: 'POST', body: form })
+    return fetch(`/api/auth/cookies/${platform}/upload`, { method: 'POST', body: form, headers: authHeaders() })
       .then(async (res) => {
         if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '上传失败')
         return res.json()
