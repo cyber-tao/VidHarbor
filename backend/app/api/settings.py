@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ..config import (
@@ -13,10 +13,12 @@ from ..config import (
     VIDEO_CODECS,
     get_settings,
     invalidate_settings_cache,
+    parse_timezone,
 )
 from ..db import get_sessionmaker
 from ..models import AppSetting
 from ..downloader.encoders import detect_hevc_encoder
+from ..scheduler import register_all
 
 log = logging.getLogger("vidharbor.api.settings")
 router = APIRouter()
@@ -99,8 +101,14 @@ def _merge_overlay(current: dict, patch: dict) -> dict:
 
 
 @router.put("/api/settings")
-def update_settings(req: SettingsUpdate):
+def update_settings(req: SettingsUpdate, request: Request):
     patch = {k: v for k, v in req.model_dump().items() if v}
+    if "timezone" in patch.get("scheduler", {}):
+        try:
+            parse_timezone(str(patch["scheduler"]["timezone"]))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+    old_timezone = get_settings().scheduler.timezone
     sm = get_sessionmaker()
     with sm() as session:
         row = session.get(AppSetting, 1)
@@ -124,9 +132,14 @@ def update_settings(req: SettingsUpdate):
             row.data = json.dumps(merged, ensure_ascii=False)
         session.commit()
     invalidate_settings_cache()
+    settings = get_settings()
     # 转码上限即时生效（下载并发由调度器每轮重读 settings，无需额外通知）
     from ..downloader.postprocess import set_transcode_limit
 
-    set_transcode_limit(get_settings().library.transcode_concurrency)
+    set_transcode_limit(settings.library.transcode_concurrency)
+    # 触发器在注册时就绑定了时区，换时区后必须全部重新注册
+    scheduler = getattr(request.app.state, "scheduler", None)
+    if scheduler is not None and settings.scheduler.timezone != old_timezone:
+        register_all(scheduler, request.app.state.queue)
     log.info("设置已更新: %s", ", ".join(f"{k}.{k2}" for k, v in patch.items() for k2 in v) or "(空)")
     return {"ok": True, "settings": _effective_dict()}

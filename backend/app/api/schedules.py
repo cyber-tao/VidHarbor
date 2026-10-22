@@ -7,6 +7,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from ..charts import provider_for
 from ..config import PLATFORMS
 from ..db import get_sessionmaker
 from ..models import Schedule
@@ -27,7 +28,8 @@ class SelectionIn(BaseModel):
 
 class ScheduleIn(BaseModel):
     name: str = Field(min_length=1, max_length=128)
-    enabled: bool = True
+    # None = 编辑时保持原启停状态（启停走 /toggle）；新建默认启用
+    enabled: bool | None = None
     mode: str = "daily"
     interval_minutes: int = Field(default=0, ge=0, le=525600)
     at_time: str = "09:00"
@@ -43,6 +45,13 @@ def _validate(req: ScheduleIn) -> None:
     for sel in req.selections:
         if sel.platform not in PLATFORMS:
             raise HTTPException(status_code=400, detail=f"不支持的平台: {sel.platform}")
+        provider = provider_for(sel.platform)
+        if provider is not None and not provider.is_downloadable(sel.category):
+            raise HTTPException(
+                status_code=400,
+                detail=f"{sel.platform} 的「{sel.category or '默认'}」榜单条目不可直接下载"
+                       "（如抖音热搜为话题榜），请改用自定义关键词",
+            )
     if req.mode == "interval" and req.interval_minutes < 1:
         raise HTTPException(status_code=400, detail="interval 模式需要 interval_minutes ≥ 1")
     if req.mode in ("daily", "weekly"):
@@ -64,7 +73,8 @@ def _validate(req: ScheduleIn) -> None:
 
 def _apply(row: Schedule, req: ScheduleIn) -> None:
     row.name = req.name.strip()
-    row.enabled = req.enabled
+    if req.enabled is not None:
+        row.enabled = req.enabled
     row.mode = req.mode
     row.interval_minutes = req.interval_minutes
     row.at_time = req.at_time
@@ -97,7 +107,7 @@ def create_schedule(req: ScheduleIn, request: Request):
     _validate(req)
     sm = get_sessionmaker()
     with sm() as session:
-        row = Schedule()
+        row = Schedule(enabled=True)
         _apply(row, req)
         session.add(row)
         session.commit()

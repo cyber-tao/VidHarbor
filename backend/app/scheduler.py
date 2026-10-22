@@ -153,23 +153,26 @@ def run_schedule(schedule_id: int, queue: TaskQueue) -> dict:
             period = str(sel.get("period") or "")
             limit = max(1, min(100, int(sel.get("limit") or 10)))
             provider = provider_for(platform)
+            error = ""
+            items = []
             if provider is None:
+                error = "不支持的平台"
+            else:
+                category, period = provider.normalize(category, period)
+                if not provider.is_downloadable(category):
+                    # 校验上线前创建的旧任务可能仍带着话题榜
+                    error = "榜单条目不可直接下载（话题榜），请改用自定义关键词"
+                else:
+                    try:
+                        items = provider.fetch(category, period)
+                    except Exception as e:  # noqa: BLE001
+                        error = str(getattr(e, "message", e))[:200]
+            if error:
                 total_failed += 1
-                errors.append(f"{platform}: 不支持的平台")
+                errors.append(f"{platform}/{category}: {error}")
                 per_selection.append({"platform": platform, "category": category,
                                       "period": period, "created": 0, "skipped": 0,
-                                      "error": "不支持的平台"})
-                continue
-            category, period = provider.normalize(category, period)
-            try:
-                items = provider.fetch(category, period)
-            except Exception as e:  # noqa: BLE001
-                msg = str(getattr(e, "message", e))[:200]
-                total_failed += 1
-                errors.append(f"{platform}/{category}: {msg}")
-                per_selection.append({"platform": platform, "category": category,
-                                      "period": period, "created": 0, "skipped": 0,
-                                      "error": msg})
+                                      "error": error})
                 continue
             created = skipped = 0
             for item in items:

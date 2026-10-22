@@ -140,6 +140,54 @@ class TestSchedulesAPI:
         assert client.post("/api/schedules", json=bad_platform).status_code == 400
 
 
+class TestScheduleState:
+    PAYLOAD = {
+        "name": "状态测试", "mode": "daily", "at_time": "09:00",
+        "selections": [{"platform": "bilibili", "category": "all", "period": "", "limit": 3}],
+    }
+
+    @staticmethod
+    def _next_run(client, sid):
+        from datetime import datetime
+
+        row = next(s for s in client.get("/api/schedules").json()["schedules"] if s["id"] == sid)
+        return datetime.fromisoformat(row["next_run_at"])
+
+    def test_edit_keeps_disabled_state(self, client):
+        sid = client.post("/api/schedules", json=self.PAYLOAD).json()["schedule"]["id"]
+        try:
+            assert client.post(f"/api/schedules/{sid}/toggle").json()["schedule"]["enabled"] is False
+            r = client.put(f"/api/schedules/{sid}", json=dict(self.PAYLOAD, name="改名"))
+            assert r.status_code == 200
+            assert r.json()["schedule"]["enabled"] is False
+            assert r.json()["schedule"]["next_run_at"] is None  # 停用任务不进调度器
+        finally:
+            client.delete(f"/api/schedules/{sid}")
+
+    def test_douyin_hot_list_rejected(self, client):
+        hot = dict(self.PAYLOAD, selections=[{"platform": "douyin", "category": "hot", "limit": 5}])
+        assert client.post("/api/schedules", json=hot).status_code == 400
+        keyword = dict(self.PAYLOAD, selections=[
+            {"platform": "douyin", "category": "custom:猫咪", "limit": 5}])
+        r = client.post("/api/schedules", json=keyword)
+        assert r.status_code == 200
+        client.delete(f"/api/schedules/{r.json()['schedule']['id']}")
+
+    def test_timezone_change_reschedules_jobs(self, client, restore_settings_overlay):
+        sid = client.post("/api/schedules", json=self.PAYLOAD).json()["schedule"]["id"]
+        try:
+            before = self._next_run(client, sid)  # 隔离库默认 Asia/Shanghai
+            assert (before.hour, before.utcoffset().total_seconds()) == (9, 8 * 3600)
+            assert client.put("/api/settings", json={"scheduler": {"timezone": "UTC"}}).status_code == 200
+            after = self._next_run(client, sid)
+            assert (after.hour, after.utcoffset().total_seconds()) == (9, 0)
+            assert client.put("/api/settings",
+                              json={"scheduler": {"timezone": "Mars/Base"}}).status_code == 400
+        finally:
+            client.put("/api/settings", json={"scheduler": {"timezone": "Asia/Shanghai"}})
+            client.delete(f"/api/schedules/{sid}")
+
+
 class TestEvents:
     def test_sse_stream(self, client):
         with client.stream("GET", "/api/events") as res:
@@ -283,6 +331,9 @@ class TestScheduleDedup:
         class FakeProvider:
             def normalize(self, category, period):
                 return category or "hot", period
+
+            def is_downloadable(self, category):
+                return True
 
             def fetch(self, category, period):
                 return [TrendingItem(source_id="BV1TEST0000x", title="t",

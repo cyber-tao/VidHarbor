@@ -39,6 +39,7 @@ def _resolve_db_filename(data_dir: Path) -> str:
             return LEGACY_DB_FILENAME
     return DB_FILENAME
 
+DEFAULT_TIMEZONE = "Asia/Shanghai"
 VIDEO_CODECS = ("h265", "h264")
 ENCODERS = ("auto", "libx265", "hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_videotoolbox")
 PLATFORMS = ("bilibili", "youtube", "tiktok", "douyin")
@@ -96,7 +97,7 @@ class ServerCfg(BaseModel):
 
 
 class SchedulerCfg(BaseModel):
-    timezone: str = "Asia/Shanghai"
+    timezone: str = DEFAULT_TIMEZONE
 
 
 class Settings(BaseModel):
@@ -268,15 +269,32 @@ def invalidate_settings_cache() -> None:
     get_settings.cache_clear()
 
 
-def local_timezone():
-    """定时任务与统计展示共用的时区（scheduler.timezone，无效值回退 Asia/Shanghai）。"""
+def parse_timezone(name: str):
+    """IANA 时区名 → ZoneInfo；无效名抛 ValueError（设置页写入时校验）。"""
     from zoneinfo import ZoneInfo
 
-    name = get_settings().scheduler.timezone or "Asia/Shanghai"
     try:
-        return ZoneInfo(name)
-    except Exception:  # noqa: BLE001
-        return ZoneInfo("Asia/Shanghai")
+        return ZoneInfo((name or "").strip())
+    except Exception as e:  # noqa: BLE001  NotFound/ValueError/OSError 都意味着名称无效
+        raise ValueError(f"无效时区: {name!r}（需为 IANA 时区名，如 Asia/Shanghai、UTC）") from e
+
+
+@lru_cache
+def _warn_invalid_timezone(name: str) -> None:
+    log.warning("scheduler.timezone=%r 无效，按 %s 处理", name, DEFAULT_TIMEZONE)
+
+
+def local_timezone():
+    """定时任务与统计展示共用的时区（scheduler.timezone）。
+
+    设置页写入时已校验；config.toml / 环境变量中的无效值在此回退默认时区并告警一次。
+    """
+    name = get_settings().scheduler.timezone or DEFAULT_TIMEZONE
+    try:
+        return parse_timezone(name)
+    except ValueError:
+        _warn_invalid_timezone(name)
+        return parse_timezone(DEFAULT_TIMEZONE)
 
 
 def ensure_dirs(settings: Settings) -> None:

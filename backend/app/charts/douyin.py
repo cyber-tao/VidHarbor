@@ -59,6 +59,8 @@ class DouyinProvider(ChartProvider):
             **CATEGORY, "periods": PERIODS,
             # 开放自定义关键词搜索（custom:<词> → 可下载视频列表）
             "allow_custom": True,
+            # 热搜条目是话题而非视频
+            "downloadable": False,
         }]
 
     def fetch(self, category: str, period: str = "") -> list[TrendingItem]:

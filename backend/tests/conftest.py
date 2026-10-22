@@ -29,3 +29,28 @@ def _isolated_project_root(tmp_path_factory):
     config.PROJECT_ROOT, db._engine, db.SessionLocal, config.Path.home = saved
     config.invalidate_settings_cache()
     config._resolve_db_filename.cache_clear()
+
+
+@pytest.fixture
+def restore_settings_overlay():
+    """用例结束后把 Web 设置覆盖层（app_settings 行）还原为用例开始前的内容。"""
+    from app.config import invalidate_settings_cache
+    from app.db import get_sessionmaker
+    from app.models import AppSetting
+
+    sm = get_sessionmaker()
+    with sm() as s:
+        row = s.get(AppSetting, 1)
+        original = row.data if row is not None else None
+    yield
+    with sm() as s:
+        row = s.get(AppSetting, 1)
+        if original is None:
+            if row is not None:
+                s.delete(row)
+        elif row is None:
+            s.add(AppSetting(id=1, data=original))
+        else:
+            row.data = original
+        s.commit()
+    invalidate_settings_cache()

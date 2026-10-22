@@ -56,6 +56,8 @@ class ChartProvider(ABC):
         三日榜/周榜而 YouTube 搜索有今日/本周/本月）；无时间维度的平台
         也应返回单元素列表（如 [{"id": "default", "name": "实时"}]）。
         allow_custom 表示接受 "custom:<词>" 形式的自定义分类（关键词/标签）。
+        可选 downloadable=False 表示该分类条目不能直接下载（如抖音热搜是话题榜），
+        定时任务据此拒绝；custom 分类总是可下载。
         """
 
     @abstractmethod
@@ -81,6 +83,12 @@ class ChartProvider(ABC):
         if self.find_category(category) is None:
             category = cats[0]["id"]
         return category, self._norm_period(cats, category, period)
+
+    def is_downloadable(self, category: str) -> bool:
+        category, _ = self.normalize(category, "")
+        if category.startswith("custom:"):
+            return True
+        return bool((self.find_category(category) or {}).get("downloadable", True))
 
     @staticmethod
     def _norm_period(cats: list[dict], category: str, period: str) -> str:

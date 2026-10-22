@@ -171,6 +171,13 @@ class TestYoutubeDouyinMeta:
         assert cats[0]["periods"][0]["name"] == "实时"
         assert cats[0]["allow_custom"] is True
 
+    def test_downloadable_flags(self):
+        # 抖音热搜是话题榜（不可直接下载），关键词搜索结果可下载
+        assert DouyinProvider().is_downloadable("hot") is False
+        assert DouyinProvider().is_downloadable("") is False
+        assert DouyinProvider().is_downloadable("custom:猫咪") is True
+        assert BilibiliProvider().is_downloadable("all") is True
+
 
 class TestDouyin:
     SAMPLE = {

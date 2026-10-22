@@ -60,10 +60,12 @@ async function ensureMeta(platform) {
   }
 }
 
-function catsOf(platform) { return metaCache[platform] ?? [] }
+// 定时任务只能选可直接下载的分类（抖音热搜是话题榜，只能用自定义关键词）
+function catsOf(platform) { return (metaCache[platform] ?? []).filter((c) => c.downloadable !== false) }
+function allowCustom(platform) { return (metaCache[platform] ?? []).some((c) => c.allow_custom) }
 function periodsOf(sel) {
-  if (sel.category.startsWith('custom:')) {
-    const withCustom = catsOf(sel.platform).find((c) => c.allow_custom)
+  if (sel.category === '__custom__' || sel.category.startsWith('custom:')) {
+    const withCustom = (metaCache[sel.platform] ?? []).find((c) => c.allow_custom)
     return withCustom?.periods ?? [{ id: 'default', name: '默认' }]
   }
   return catsOf(sel.platform).find((c) => c.id === sel.category)?.periods ?? []
@@ -78,8 +80,8 @@ function removeSelection(i) { editor.selections.splice(i, 1) }
 async function onSelPlatform(sel) {
   await ensureMeta(sel.platform)
   const cats = catsOf(sel.platform)
-  sel.category = cats[0]?.id ?? ''
-  sel.period = cats[0]?.periods?.[0]?.id ?? ''
+  sel.category = cats[0]?.id ?? (allowCustom(sel.platform) ? '__custom__' : '')
+  sel.period = periodsOf(sel)[0]?.id ?? ''
   sel.custom = ''
 }
 function onSelCategory(sel) {
@@ -146,7 +148,7 @@ async function save() {
   }
   const options = editor.useDefault ? {} : buildOptions()
   const payload = {
-    name: editor.name.trim(), enabled: true, mode: editor.mode,
+    name: editor.name.trim(), mode: editor.mode,
     at_time: editor.at_time, weekdays: editor.weekdays,
     interval_minutes: Number(editor.interval_minutes) || 60,
     cron: editor.cron,
@@ -347,7 +349,7 @@ const HEIGHTS = [
                   <select v-model="sel.category" @change="onSelCategory(sel)"
                     class="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200 outline-none focus:border-indigo-500">
                     <option v-for="c in catsOf(sel.platform)" :key="c.id" :value="c.id">{{ c.name }}</option>
-                    <option v-if="catsOf(sel.platform).some((c) => c.allow_custom)" value="__custom__">自定义…</option>
+                    <option v-if="allowCustom(sel.platform)" value="__custom__">自定义…</option>
                   </select>
                   <input v-if="sel.category === '__custom__'" v-model="sel.custom" placeholder="关键词 / 标签"
                     class="w-32 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
