@@ -44,6 +44,13 @@ PARSE_OK = {
 }
 
 
+class TestSocksDependency:
+    def test_socks_proxy_client_constructible(self):
+        """socks5:// 代理是文档/设置页承诺的能力：httpx 需 socksio（httpx[socks] extra），
+        缺失时 Client 构造即抛 ImportError，榜单与 Evil0ctal 兜底全部不可用。"""
+        httpx.Client(proxy=httpx.Proxy("socks5://127.0.0.1:1080"))
+
+
 class TestClient:
     def test_parse_success(self, monkeypatch):
         seen = {}
