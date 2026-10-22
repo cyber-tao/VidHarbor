@@ -156,6 +156,36 @@ class TestDownload:
         assert info["tags"] == ["小奶包猫咪", "蓝金渐层"]
         assert info["extractor_key"] == "Douyin"
 
+    def test_cover_fetch_uses_platform_proxy(self, monkeypatch, tmp_path):
+        import copy
+
+        body = copy.deepcopy(PARSE_OK)
+        body["data"]["media"]["covers"] = [{"url": "http://cdn.test/cover.jpeg"}]
+        seen = {}
+
+        class FakeStream:
+            def __init__(self, method, url, **kw):
+                seen["video_proxy"] = kw.get("proxy")
+                self._r = httpx.Response(200, content=b"v" * 16, request=httpx.Request(method, url))
+
+            def __enter__(self):
+                return self._r
+
+            def __exit__(self, *a):
+                return False
+
+        def fake_get(url, **kw):
+            seen["cover_proxy"] = kw.get("proxy")
+            return httpx.Response(200, content=b"jpeg", request=httpx.Request("GET", url))
+
+        monkeypatch.setattr(mod.httpx, "post", _client_with(lambda r: httpx.Response(200, json=body)))
+        monkeypatch.setattr(mod.httpx, "stream", FakeStream)
+        monkeypatch.setattr(mod.httpx, "get", fake_get)
+        s = Settings(download={"proxy": "http://proxy.test:7890", "proxy_platforms": ["douyin"]})
+        raw = evil0ctal_download("https://www.douyin.com/video/7638421607305230298", s, tmp_path)
+        assert raw.ok and raw.thumbnail_path is not None
+        assert seen == {"video_proxy": "http://proxy.test:7890", "cover_proxy": "http://proxy.test:7890"}
+
     def test_image_kind_rejected(self, monkeypatch, tmp_path):
         body = {"success": True, "data": {"kind": "images", "platform": "douyin"}}
 

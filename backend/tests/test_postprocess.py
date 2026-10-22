@@ -50,6 +50,37 @@ class TestSrtToVtt:
         assert "," not in vtt.split("-->")[1].split("\n")[0]
 
 
+class TestTranscodeTimeout:
+    """转码超时按片长放宽：固定 2 小时会让慢 CPU 上的长视频白跑两小时后失败。"""
+
+    def test_scales_with_duration(self):
+        from app.downloader.postprocess import transcode_timeout
+
+        assert transcode_timeout({"format": {"duration": "60.5"}}) == 7200  # 短片保底
+        assert transcode_timeout({"format": {"duration": "10800"}}) == 108000  # 3 小时片长
+        assert transcode_timeout({"format": {"duration": "N/A"}}) == 7200
+        assert transcode_timeout({}) == 7200
+
+    def test_ensure_mp4_passes_scaled_timeout(self, monkeypatch, tmp_path):
+        from app.downloader import encoders
+        from app.downloader import postprocess as pp
+
+        probe = {"streams": [{"codec_type": "video", "codec_name": "h264"},
+                             {"codec_type": "audio", "codec_name": "aac"}],
+                 "format": {"duration": "10800"}}
+        seen = {}
+
+        def fake_ffmpeg(cmd, cancel=None, timeout=7200):
+            seen["timeout"] = timeout
+            open(cmd[-1], "wb").close()
+
+        monkeypatch.setattr(pp, "run_ffprobe", lambda p: probe)
+        monkeypatch.setattr(pp, "_run_ffmpeg", fake_ffmpeg)
+        monkeypatch.setattr(encoders, "detect_hevc_encoder", lambda pref="auto": "libx265")
+        _, action = pp.ensure_mp4(tmp_path / "src.mp4", tmp_path / "out", "h265")
+        assert action == "transcode" and seen["timeout"] == 108000
+
+
 class TestArchivedMetadata:
     def test_drops_transient_download_data(self):
         import json

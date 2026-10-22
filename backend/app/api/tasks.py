@@ -6,6 +6,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from ..config import get_settings
 from ..db import get_sessionmaker
 from ..downloader.engine import dedup_key, detect_platform, task_creation, task_snapshot
 from ..downloader.options import DownloadOptions
@@ -25,7 +26,7 @@ class CreateTasksReq(BaseModel):
 @router.post("/api/tasks")
 def create_tasks(req: CreateTasksReq, request: Request):
     # 分享文案提取 URL + 短链展开（v.douyin.com / vm.tiktok.com 等）
-    urls: list[str] = normalize_inputs(req.urls)
+    urls: list[str] = normalize_inputs(req.urls, proxy_for=get_settings().proxy_for)
     if not urls:
         raise HTTPException(status_code=400, detail="没有可下载的 URL")
     if len(urls) > 200:

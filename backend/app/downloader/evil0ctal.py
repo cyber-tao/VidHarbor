@@ -221,7 +221,7 @@ def evil0ctal_download(
         try:
             tp = temp_dir / f"{aweme_id}.jpeg"
             tr = httpx.get(cover_url, headers={"User-Agent": UA, "Referer": referer},
-                           timeout=20, follow_redirects=True)
+                           proxy=proxy, timeout=20, follow_redirects=True)
             if tr.status_code == 200:
                 tp.write_bytes(tr.content)
                 thumbnail_path = tp

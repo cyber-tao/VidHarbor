@@ -129,6 +129,20 @@ def parse_fps(rate: str | None) -> float:
         return 0.0
 
 
+# 转码超时只为兜住卡死的 ffmpeg，按片长放宽：低功耗 CPU 上 1080p/4K 转 HEVC 可能远慢于实时，
+# 固定 2 小时上限会让长视频白跑两小时后失败
+_TRANSCODE_MIN_TIMEOUT = 7200
+_TRANSCODE_SECONDS_PER_MEDIA_SECOND = 10
+
+
+def transcode_timeout(probe: dict) -> int:
+    try:
+        duration = float((probe.get("format") or {}).get("duration") or 0)
+    except (TypeError, ValueError):
+        duration = 0.0
+    return max(_TRANSCODE_MIN_TIMEOUT, int(duration * _TRANSCODE_SECONDS_PER_MEDIA_SECOND))
+
+
 def ensure_mp4(
     src: Path, out_dir: Path, video_codec: str = "h264", hw_encoder: str = "auto",
     cancel: threading.Event | None = None,
@@ -180,7 +194,7 @@ def ensure_mp4(
     if need_transcode:
         # 全局转码限流：占满时在此排队（取消可立即退出队列）；转码中取消会立即 kill ffmpeg
         with _transcode_limiter.slot(cancel=cancel):
-            _run_ffmpeg(cmd, cancel=cancel)
+            _run_ffmpeg(cmd, cancel=cancel, timeout=transcode_timeout(probe))
     else:
         _run_ffmpeg(cmd, cancel=cancel)
     if not out.exists():
