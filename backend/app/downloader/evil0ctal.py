@@ -194,9 +194,10 @@ def evil0ctal_download(
 
     media = temp_dir / f"{aweme_id}.mp4"
     referer = _PLATFORM_REFERER.get(platform, "https://www.douyin.com/")
+    proxy = settings.proxy_for(platform) or None
     try:
         with httpx.stream("GET", play, headers={"User-Agent": UA, "Referer": referer},
-                          timeout=60, follow_redirects=True) as r:
+                          proxy=proxy, timeout=60, follow_redirects=True) as r:
             r.raise_for_status()
             total = int(r.headers.get("content-length") or 0)
             done = 0

@@ -118,6 +118,9 @@ def ytdlp_download(
         "progress_hooks": [hook],
         "postprocessor_hooks": [pp_hook],
         "noplaylist": True,
+        # B站分P等 anthology 不受 noplaylist 拦截（URL 无 list 参数，extractor 直接返回
+        # playlist），显式只取第 1 P，与下方 entries[0] 的单视频模型一致
+        "playlist_items": "1",
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
@@ -130,6 +133,10 @@ def ytdlp_download(
     cookies = settings.cookie_file_for(platform) if platform else settings.cookies_path
     if cookies:
         opts["cookiefile"] = str(cookies)
+    if platform:
+        proxy = settings.proxy_for(platform)
+        if proxy:
+            opts["proxy"] = proxy
 
     temp_dir.mkdir(parents=True, exist_ok=True)
     try:

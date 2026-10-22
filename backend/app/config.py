@@ -1,8 +1,9 @@
-"""VidHarbor 配置：config.toml 打底 + DB app_settings 覆盖（Web 设置页可改）。"""
+"""VidHarbor 配置：config.toml 打底 + 环境变量 VIDHARBOR_<section>__<field> 覆盖 + DB app_settings 覆盖（Web 设置页可改）。"""
 from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import tomllib
 from functools import lru_cache
@@ -13,6 +14,8 @@ from pydantic import BaseModel, Field
 log = logging.getLogger("vidharbor.config")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]  # vidharbor/
+
+ENV_PREFIX = "VIDHARBOR_"
 
 DB_FILENAME = "vidharbor.db"
 # vidlib 时期的旧库文件名，首次访问时自动改名迁移
@@ -56,12 +59,19 @@ class DownloadCfg(BaseModel):
     concurrency: int = Field(default=2, ge=1, le=8)
     # 同一平台同时下载的任务数上限（防风控/限速；调度器实时读取，改完即时生效）
     per_platform_concurrency: int = Field(default=2, ge=1, le=8)
-    sub_langs: list[str] = Field(default_factory=lambda: ["zh.*", "en.*"])
+    # 锚定标准语言码；避免 zh.* 在 YouTube 命中大量"翻译自xx语"自动字幕导致 429 限流
+    sub_langs: list[str] = Field(default_factory=lambda: [
+        r"^zh(-CN|-Hans|-Hant|-TW|-HK)?$", r"^en(-US|-GB)?$",
+    ])
     cookies_file: str = ""
     # 最高分辨率（像素高度），0 = 不限
     max_height: int = Field(default=1080, ge=0, le=4320)
     # 音轨语言偏好（按顺序），多音轨视频只下载一条首选音轨；空 = 原声/默认
     audio_langs: list[str] = Field(default_factory=list)
+    # 出口代理（http://host:port 或 socks5://host:port），只对 proxy_platforms
+    # 勾选的平台生效：下载（yt-dlp/Evil0ctal 兜底）与榜单请求均走该代理
+    proxy: str = ""
+    proxy_platforms: list[str] = Field(default_factory=list)
 
 
 class Evil0ctalCfg(BaseModel):
@@ -129,6 +139,12 @@ class Settings(BaseModel):
             return p
         return self.cookies_path
 
+    def proxy_for(self, platform: str) -> str:
+        """平台命中 proxy_platforms 时返回代理地址，否则空串（= 直连）。"""
+        if self.download.proxy and platform in self.download.proxy_platforms:
+            return self.download.proxy
+        return ""
+
     @property
     def cookies_path(self) -> Path | None:
         if not self.download.cookies_file:
@@ -163,6 +179,8 @@ EDITABLE_FIELDS: set[tuple[str, str]] = {
     ("download", "audio_langs"),
     ("download", "concurrency"),
     ("download", "per_platform_concurrency"),
+    ("download", "proxy"),
+    ("download", "proxy_platforms"),
     ("library", "video_codec"),
     ("library", "hw_encoder"),
     ("library", "transcode_concurrency"),
@@ -205,11 +223,40 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
     return out
 
 
+def _coerce_env_value(value: str):
+    """环境变量值类型还原：优先 JSON 解析（bool/int/list），失败则保持字符串。"""
+    try:
+        return json.loads(value)
+    except (ValueError, TypeError):
+        return value
+
+
+def _load_env_overrides() -> dict:
+    """环境变量覆盖：VIDHARBOR_<section>__<field>（双下划线分隔），主要供容器部署注入。
+
+    优先级低于 DB（Web 设置页），即页面上改过的字段不受环境变量影响。
+    """
+    out: dict = {}
+    for key, raw in os.environ.items():
+        if not key.startswith(ENV_PREFIX):
+            continue
+        # 空值视为未设置：compose 可无条件注入 ${VAR:-}，避免空串覆盖
+        # list/bool 字段导致 Settings 校验失败
+        if not raw.strip():
+            continue
+        section, sep, field = key[len(ENV_PREFIX):].partition("__")
+        if not sep or not section or not field:
+            continue
+        out.setdefault(section.lower(), {})[field.lower()] = _coerce_env_value(raw)
+    return out
+
+
 @lru_cache
 def get_settings() -> Settings:
     raw = _load_file()
+    env = _load_env_overrides()
     overlay = _load_overrides()
-    merged = _deep_merge(raw, overlay)
+    merged = _deep_merge(_deep_merge(raw, env), overlay)
     sections = {}
     for name in ("library", "download", "evil0ctal", "youtube", "server", "scheduler"):
         if isinstance(merged.get(name), dict):

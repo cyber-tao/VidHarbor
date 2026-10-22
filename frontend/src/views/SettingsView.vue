@@ -12,8 +12,14 @@ const dirty = ref(false)
 // API Key 掩码显示开关（默认隐藏，防止旁人窥屏）
 const showKeys = reactive({ evil0ctal: false, yt: false })
 
+const PLATFORMS = [
+  { id: 'bilibili', label: '哔哩哔哩' }, { id: 'youtube', label: 'YouTube' },
+  { id: 'tiktok', label: 'TikTok' }, { id: 'douyin', label: '抖音' },
+]
+
 const form = reactive({
   max_height: 1080, sub_langs: 'zh.*, en.*', audio_langs: '',
+  proxy: '', proxyPlatforms: [],
   concurrency: 2, per_platform: 2, transcode: 1,
   video_codec: 'h265', hw_encoder: 'auto',
   evil0ctal_enabled: true, evil0ctal_base_url: '', evil0ctal_api_key: '',
@@ -37,6 +43,8 @@ async function load() {
     form.audio_langs = d.download.audio_langs.join(', ')
     form.concurrency = d.download.concurrency ?? 2
     form.per_platform = d.download.per_platform_concurrency ?? 2
+    form.proxy = d.download.proxy || ''
+    form.proxyPlatforms = d.download.proxy_platforms || []
     form.transcode = d.library.transcode_concurrency ?? 1
     form.video_codec = d.library.video_codec
     form.hw_encoder = d.library.hw_encoder
@@ -63,6 +71,8 @@ async function save() {
         per_platform_concurrency: Number(form.per_platform),
         sub_langs: form.sub_langs.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
         audio_langs: form.audio_langs.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
+        proxy: form.proxy.trim(),
+        proxy_platforms: [...form.proxyPlatforms],
       },
       library: { video_codec: form.video_codec, hw_encoder: form.hw_encoder, transcode_concurrency: Number(form.transcode) },
       evil0ctal: { enabled: form.evil0ctal_enabled, base_url: form.evil0ctal_base_url, api_key: form.evil0ctal_api_key.trim() },
@@ -216,6 +226,21 @@ function closeQR() {
           <input v-model="form.audio_langs" @input="dirty = true" placeholder="zh, ja, en"
             class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 font-mono text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
         </label>
+        <label class="space-y-1.5 sm:col-span-3">
+          <span class="text-xs text-zinc-400">出口代理（http://host:port 或 socks5://host:port，留空=不用；勾选平台的下载与榜单请求走代理）</span>
+          <input v-model="form.proxy" @input="dirty = true" placeholder="http://host.docker.internal:7890"
+            class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 font-mono text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
+        </label>
+        <div class="space-y-1.5 sm:col-span-3">
+          <span class="text-xs text-zinc-400">走代理的平台</span>
+          <div class="flex flex-wrap gap-4">
+            <label v-for="pf in PLATFORMS" :key="pf.id" class="flex items-center gap-1.5 text-xs text-zinc-300">
+              <input type="checkbox" :value="pf.id" v-model="form.proxyPlatforms" @change="dirty = true"
+                class="size-3.5 accent-indigo-500" />
+              {{ pf.label }}
+            </label>
+          </div>
+        </div>
       </div>
     </div>
 

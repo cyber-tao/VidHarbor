@@ -148,7 +148,7 @@ def _item_from_renderer(rank: int, vr: dict) -> TrendingItem:
     )
 
 
-def _innertube_search(query: str, max_pages: int = _MAX_PAGES) -> list[dict]:
+def _innertube_search(query: str, max_pages: int = _MAX_PAGES, proxy: str = "") -> list[dict]:
     """InnerTube 搜索（免登录）+ 翻页，返回 videoRenderer 列表；失败抛 ChartError。"""
     base_body = {
         "context": {"client": {
@@ -165,7 +165,7 @@ def _innertube_search(query: str, max_pages: int = _MAX_PAGES) -> list[dict]:
             body = dict(base_body)
             if continuation:
                 body["continuation"] = continuation
-            r = httpx.post(_INNERTUBE_URL, json=body, timeout=15)
+            r = httpx.post(_INNERTUBE_URL, json=body, timeout=15, proxy=proxy or None)
             r.raise_for_status()
             data = r.json()
             found: list[dict] = []
@@ -279,7 +279,8 @@ class YoutubeProvider(ChartProvider):
 
     def _data_api_get(self, path: str, params: dict) -> dict:
         params = {**params, "key": self.settings.youtube.api_key}
-        r = httpx.get(f"{_DATA_API}/{path}", params=params, timeout=15)
+        r = httpx.get(f"{_DATA_API}/{path}", params=params, timeout=15,
+                      proxy=self.settings.proxy_for("youtube") or None)
         if r.status_code != 200:
             detail = ""
             try:
@@ -331,7 +332,7 @@ class YoutubeProvider(ChartProvider):
         return items
 
     def _fetch_innertube(self, query: str, period: str) -> list[TrendingItem]:
-        renderers = _innertube_search(query)
+        renderers = _innertube_search(query, proxy=self.settings.proxy_for("youtube"))
         items = [_item_from_renderer(rank, vr)
                  for rank, vr in enumerate(renderers, start=1)]
         # 按周期过滤发布时间（解析不了时间的条目保留，避免误杀直播/新上传）；
@@ -356,6 +357,9 @@ class YoutubeProvider(ChartProvider):
         cookies = self.settings.cookie_file_for("youtube")
         if cookies:
             opts["cookiefile"] = str(cookies)
+        proxy = self.settings.proxy_for("youtube")
+        if proxy:
+            opts["proxy"] = proxy
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=False)

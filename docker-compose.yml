@@ -1,0 +1,52 @@
+# VidHarbor (影坞) — Docker Compose deployment.
+# One-click: ./deploy.sh (Linux/macOS/WSL/Git Bash) or .\deploy.ps1 (Windows PowerShell)
+#
+# The deploy script composes optional override files via COMPOSE_FILE in .env:
+#   docker-compose.evil0ctal.yml  — Evil0ctal fallback on a shared docker network
+#   docker-compose.gpu-nvidia.yml — NVIDIA GPU (NVENC) transcoding
+#   docker-compose.gpu-intel.yml  — Intel iGPU (QSV) transcoding
+#
+# Overrides live in .env (created by the deploy script, or create it yourself):
+#   PORT / TZ / GPU / WITH_EVIL0CTAL / EVIL0CTAL_API_KEY / EVIL0CTAL_BASE_URL
+
+name: vidharbor
+
+services:
+  vidharbor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vidharbor:latest
+    container_name: vidharbor
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8666}:8666"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      # Evil0ctal fallback engine. Standalone default points at a service on the
+      # host (Docker Desktop resolves host.docker.internal; Linux needs the
+      # extra_hosts entry below). docker-compose.evil0ctal.yml overrides the
+      # default to http://api:8000 on the shared network.
+      VIDHARBOR_EVIL0CTAL__BASE_URL: ${EVIL0CTAL_BASE_URL:-http://host.docker.internal:8000}
+      VIDHARBOR_EVIL0CTAL__API_KEY: ${EVIL0CTAL_API_KEY:-}
+      # Per-platform egress proxy; PROXY_PLATFORMS is a JSON array, e.g.
+      # PROXY=http://host.docker.internal:7890
+      # PROXY_PLATFORMS=["youtube","tiktok"]
+      # (empty values are ignored; the Settings page can override both)
+      VIDHARBOR_DOWNLOAD__PROXY: ${PROXY:-}
+      VIDHARBOR_DOWNLOAD__PROXY_PLATFORMS: ${PROXY_PLATFORMS:-}
+    volumes:
+      # SQLite DB + per-platform cookies + logs
+      - ./data:/app/data
+      # Video library (downloads, thumbnails, transcode temp)
+      - ./library:/app/library
+      # Optional: mount a config.toml (copy from config.example.toml first).
+      # Note: [server] host/port are fixed to 0.0.0.0:8666 inside the container;
+      # change the host port via PORT in .env instead.
+      # - ./config.toml:/app/config.toml:ro
+    # Lets the container reach services on the host, e.g. the Evil0ctal fallback
+    # engine at http://host.docker.internal:8000 (no-op where the name already exists)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Give downloads/transcodes time to finish on stop/recreate
+    stop_grace_period: 30s

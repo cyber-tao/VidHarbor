@@ -60,12 +60,12 @@ def _cookie_header(settings: Settings | None) -> str:
         return ""
 
 
-def _api(url: str, params: dict, cookie: str = "") -> dict:
+def _api(url: str, params: dict, cookie: str = "", proxy: str = "") -> dict:
     headers = dict(HEADERS)
     if cookie:
         headers["Cookie"] = cookie
     try:
-        r = httpx.get(url, params=params, headers=headers, timeout=15)
+        r = httpx.get(url, params=params, headers=headers, timeout=15, proxy=proxy or None)
         data = r.json()
     except Exception as e:  # noqa: BLE001
         raise ChartError(f"B站接口请求失败: {e}") from e
@@ -166,17 +166,18 @@ class BilibiliProvider(ChartProvider):
         rid = "0" if category in ("", "all") else category
         # 全部接口都带登录 cookies：既满足「每周必看」，也缓解游客请求的 -352 风控
         cookie = _cookie_header(self.settings)
+        proxy = self.settings.proxy_for("bilibili") if self.settings else ""
 
         if category == "weekly":
-            return self._fetch_weekly(cookie)
+            return self._fetch_weekly(cookie, proxy)
         if category == "precious":
-            return self._fetch_precious(cookie)
+            return self._fetch_precious(cookie, proxy)
         if period in ("3d", "week") and rid != "0":
-            return self._fetch_region(rid, period, cookie)
+            return self._fetch_region(rid, period, cookie, proxy)
 
         data = _api(
             "https://api.bilibili.com/x/web-interface/ranking/v2",
-            params={"rid": rid, "type": "all"}, cookie=cookie,
+            params={"rid": rid, "type": "all"}, cookie=cookie, proxy=proxy,
         )
         items = [
             _item_from_v2(rank, v)
@@ -184,12 +185,12 @@ class BilibiliProvider(ChartProvider):
         ]
         return items[:50]
 
-    def _fetch_region(self, rid: str, period: str, cookie: str = "") -> list[TrendingItem]:
+    def _fetch_region(self, rid: str, period: str, cookie: str = "", proxy: str = "") -> list[TrendingItem]:
         data = _api(
             "https://api.bilibili.com/x/web-interface/ranking/region",
             params={"rid": rid, "day": "3" if period == "3d" else "7",
                     "original": "0", "web_location": "333.934"},
-            cookie=cookie,
+            cookie=cookie, proxy=proxy,
         )
         lst = data.get("list") if isinstance(data, dict) else data
         if not isinstance(lst, list):
@@ -197,12 +198,12 @@ class BilibiliProvider(ChartProvider):
         items = [_item_from_region(rank, v) for rank, v in enumerate(lst or [], start=1)]
         return items[:50]
 
-    def _fetch_weekly(self, cookie: str = "") -> list[TrendingItem]:
+    def _fetch_weekly(self, cookie: str = "", proxy: str = "") -> list[TrendingItem]:
         if not cookie:
             raise ChartError("「每周必看」需要 B站登录：请在「设置 → 登录管理」扫码登录")
         series = _api(
             "https://api.bilibili.com/x/web-interface/popular/series/list",
-            params={}, cookie=cookie,
+            params={}, cookie=cookie, proxy=proxy,
         )
         lists = series.get("list") or []
         if not lists:
@@ -210,7 +211,7 @@ class BilibiliProvider(ChartProvider):
         number = int(lists[0].get("number") or 0)
         data = _api(
             "https://api.bilibili.com/x/web-interface/popular/series/one",
-            params={"number": number}, cookie=cookie,
+            params={"number": number}, cookie=cookie, proxy=proxy,
         )
         items = [
             _item_from_popular(rank, v)
@@ -218,10 +219,10 @@ class BilibiliProvider(ChartProvider):
         ]
         return items[:50]
 
-    def _fetch_precious(self, cookie: str = "") -> list[TrendingItem]:
+    def _fetch_precious(self, cookie: str = "", proxy: str = "") -> list[TrendingItem]:
         data = _api(
             "https://api.bilibili.com/x/web-interface/popular/precious",
-            params={"page_size": 50, "page": 1}, cookie=cookie,
+            params={"page_size": 50, "page": 1}, cookie=cookie, proxy=proxy,
         )
         items = [
             _item_from_popular(rank, v)

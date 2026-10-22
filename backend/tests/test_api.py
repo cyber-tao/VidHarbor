@@ -205,3 +205,20 @@ class TestVideoDelete:
                 fh.close()
             if p.exists():
                 p.unlink(missing_ok=True)
+
+
+class TestProxySettingsAPI:
+    def test_put_proxy_settings(self, client):
+        r = client.put("/api/settings", json={"download": {
+            "proxy": "http://host.docker.internal:7890",
+            "proxy_platforms": ["youtube", "tiktok"],
+        }})
+        assert r.status_code == 200
+        d = r.json()["settings"]["download"]
+        assert d["proxy"] == "http://host.docker.internal:7890"
+        assert d["proxy_platforms"] == ["youtube", "tiktok"]
+        # 还原，避免污染其他测试/本机数据
+        client.put("/api/settings", json={"download": {"proxy": "", "proxy_platforms": []}})
+        d = client.get("/api/settings").json()["settings"]["download"]
+        assert d["proxy"] == ""
+        assert d["proxy_platforms"] == []

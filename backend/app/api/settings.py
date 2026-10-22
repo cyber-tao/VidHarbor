@@ -32,6 +32,8 @@ def _effective_dict() -> dict:
             "audio_langs": list(s.download.audio_langs),
             "max_height": s.download.max_height,
             "cookies_file": s.download.cookies_file,
+            "proxy": s.download.proxy,
+            "proxy_platforms": list(s.download.proxy_platforms),
         },
         "library": {
             "video_codec": s.library.video_codec,

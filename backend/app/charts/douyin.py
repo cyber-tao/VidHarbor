@@ -71,6 +71,7 @@ class DouyinProvider(ChartProvider):
             r = httpx.get(
                 "https://www.douyin.com/aweme/v1/web/hot/search/list/",
                 params=params, headers=HEADERS, timeout=15,
+                proxy=(self.settings.proxy_for("douyin") if self.settings else None),
             )
             data = r.json()
         except Exception as e:  # noqa: BLE001
@@ -184,7 +185,8 @@ class DouyinProvider(ChartProvider):
         headers = {"User-Agent": SEARCH_UA, "Cookie": cookie_str,
                    "Referer": f"https://www.douyin.com/search/{quote(keyword)}?type=video"}
         try:
-            r = httpx.get(signed, headers=headers, timeout=20)
+            r = httpx.get(signed, headers=headers, timeout=20,
+                         proxy=(self.settings.proxy_for("douyin") if self.settings else None))
             r.raise_for_status()
             body = r.json()
         except Exception as e:  # noqa: BLE001

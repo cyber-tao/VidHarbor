@@ -280,7 +280,7 @@ class TestYoutubeInnertube:
         from app.config import Settings
 
         def make_search(items_spec):
-            def fake_search(query, max_pages=5):
+            def fake_search(query, max_pages=5, proxy=""):
                 return [
                     {"videoId": f"vid{i}",
                      "title": {"runs": [{"text": f"视频{i}"}]},
@@ -312,7 +312,7 @@ class TestYoutubeInnertube:
         from app.charts.youtube import YoutubeProvider
         from app.config import Settings
 
-        def boom(query, max_pages=5):
+        def boom(query, max_pages=5, proxy=""):
             raise ChartError("network down")
 
         monkeypatch.setattr(ym, "_innertube_search", boom)
@@ -452,14 +452,14 @@ class TestYoutubeOfficialApi:
 
         monkeypatch.setattr("app.charts.youtube.httpx.get", lambda *a, **kw: _BadResp())
 
-        def fake_innertube(query, max_pages=5):
+        def fake_innertube(query, max_pages=5, proxy=""):
             return [{"videoId": f"iv{i}",
                      "title": {"runs": [{"text": f"回退{i}"}]},
                      "ownerText": {"runs": [{"text": "频道"}]},
                      "publishedTimeText": {"simpleText": "2天前"}}
                     for i in range(3)]
 
-        def no_network(self, query):
+        def no_network(self, query, proxy=""):
             raise AssertionError("不应再回退到 yt-dlp（InnerTube 已有 3 条）")
 
         monkeypatch.setattr(ym, "_innertube_search", fake_innertube)

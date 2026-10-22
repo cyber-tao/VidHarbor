@@ -151,7 +151,8 @@ class TikTokProvider(ChartProvider):
             "Accept": "*/*", "Accept-Language": "en-US,en;q=0.9",
         }
         try:
-            r = httpx.get(signed, headers=headers, timeout=20)
+            r = httpx.get(signed, headers=headers, timeout=20,
+                         proxy=self.settings.proxy_for("tiktok") or None)
             r.raise_for_status()
             body = r.json()
         except Exception as e:  # noqa: BLE001
