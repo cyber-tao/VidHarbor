@@ -360,7 +360,7 @@ vidharbor/
 └── tools/                  # local Evil0ctal fallback clone (git-ignored)
 ```
 
-## 🔄 Upgrade Notes (v0.2.x)
+## 🔄 Upgrade Notes (v0.3.0)
 
 The web UI and deploy scripts are already updated; only scripts that call the HTTP API
 directly need changes:

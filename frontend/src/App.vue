@@ -74,7 +74,7 @@ const nav = [
               <span class="inline-block h-1.5 w-1.5 rounded-full" :class="events.connected ? 'bg-emerald-400' : 'bg-zinc-600'"></span>
               {{ events.connected ? '实时连接正常' : '连接已断开' }}
             </div>
-            <div class="mt-1">VidHarbor v0.2.0</div>
+            <div class="mt-1">VidHarbor v0.3.0</div>
           </div>
         </aside>
 

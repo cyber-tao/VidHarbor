@@ -74,7 +74,7 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(queue.stop)
 
 
-app = FastAPI(title="VidHarbor", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="VidHarbor", version="0.3.0", lifespan=lifespan)
 
 for r in (tasks.router, videos.router, charts.router, stats.router, events.router,
           settings_api.router, auth.router, schedules.router):
@@ -85,7 +85,7 @@ app.include_router(access.router)
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.2.0"}
+    return {"ok": True, "version": "0.3.0"}
 
 
 # 前端静态托管（构建产物存在时）；SPA 路由回退到 index.html

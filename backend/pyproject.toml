@@ -1,6 +1,6 @@
 [project]
 name = "vidharbor"
-version = "0.2.0"
+version = "0.3.0"
 description = "VidHarbor (影坞) — self-hosted multi-platform video library: download from YouTube/Bilibili/TikTok/Douyin, unified MP4, metadata & subtitles in SQLite"
 requires-python = ">=3.11"
 dependencies = [
