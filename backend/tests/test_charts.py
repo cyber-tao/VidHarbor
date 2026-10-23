@@ -196,10 +196,17 @@ class TestDouyin:
     }
 
     def test_fetch_words(self, monkeypatch):
-        monkeypatch.setattr(
-            "app.charts.douyin.httpx.get", lambda *a, **kw: _FakeResponse(self.SAMPLE)
-        )
-        items = DouyinProvider().fetch("hot")
+        from app.config import Settings
+
+        captured = {}
+
+        def fake_get(url, **kw):
+            captured["proxy"] = kw.get("proxy", "MISSING")
+            return _FakeResponse(self.SAMPLE)
+
+        monkeypatch.setattr("app.charts.douyin.httpx.get", fake_get)
+        items = DouyinProvider(Settings()).fetch("hot")
+        assert captured["proxy"] is None
         assert len(items) == 2
         first = items[0]
         assert first.title == "测试热搜词"
@@ -772,10 +779,12 @@ class TestDouyinSearch:
         def fake_get(url, **kw):
             captured["url"] = url
             captured["cookie"] = kw["headers"]["Cookie"]
+            captured["proxy"] = kw.get("proxy", "MISSING")
             return _FakeResponse(self.SEARCH_SAMPLE)
 
         monkeypatch.setattr("app.charts.douyin.httpx.get", fake_get)
         items = self._provider(tmp_path, monkeypatch).search_videos("猫咪")
+        assert captured["proxy"] is None
         assert len(items) == 1  # 图集被过滤
         it = items[0]
         assert it.downloadable is True

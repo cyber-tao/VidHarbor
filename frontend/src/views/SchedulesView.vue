@@ -112,7 +112,7 @@ async function openEdit(row) {
   Object.assign(editor, {
     show: true, id: row.id, name: row.name, mode: row.mode,
     at_time: row.at_time || '09:00',
-    weekdays: Array.isArray(row.weekdays) ? row.weekdays : [0],
+    weekdays: Array.isArray(row.weekdays) && row.weekdays.length ? row.weekdays : [0],
     interval_minutes: row.interval_minutes || 120,
     cron: row.cron || '0 9 * * *',
     selections: [], useDefault: !row.options || !Object.keys(row.options).length,
@@ -143,7 +143,8 @@ async function save() {
   const options = editor.useDefault ? {} : buildOptions()
   const payload = {
     name: editor.name.trim(), mode: editor.mode,
-    at_time: editor.at_time, weekdays: editor.weekdays,
+    at_time: editor.at_time,
+    weekdays: editor.mode === 'weekly' ? editor.weekdays : [],
     interval_minutes: Number(editor.interval_minutes) || 60,
     cron: editor.cron,
     selections: editor.selections.map(selectionPayload),

@@ -63,6 +63,9 @@ class DouyinProvider(ChartProvider):
             "downloadable": False,
         }]
 
+    def _proxy(self) -> str | None:
+        return (self.settings.proxy_for("douyin") or None) if self.settings else None
+
     def fetch(self, category: str, period: str = "") -> list[TrendingItem]:
         if category.startswith("custom:"):
             keyword = category[len("custom:"):].strip()
@@ -73,7 +76,7 @@ class DouyinProvider(ChartProvider):
             r = httpx.get(
                 "https://www.douyin.com/aweme/v1/web/hot/search/list/",
                 params=params, headers=HEADERS, timeout=15,
-                proxy=(self.settings.proxy_for("douyin") if self.settings else None),
+                proxy=self._proxy(),
             )
             data = r.json()
         except Exception as e:  # noqa: BLE001
@@ -173,7 +176,7 @@ class DouyinProvider(ChartProvider):
                    "Referer": f"https://www.douyin.com/search/{quote(keyword)}?type=video"}
         try:
             r = httpx.get(signed, headers=headers, timeout=20,
-                         proxy=(self.settings.proxy_for("douyin") if self.settings else None))
+                         proxy=self._proxy())
             r.raise_for_status()
             body = r.json()
         except Exception as e:  # noqa: BLE001

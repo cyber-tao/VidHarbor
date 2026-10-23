@@ -48,12 +48,14 @@ def describe_trigger(row: Schedule) -> str:
         return f"每 {m // 60} 小时" if m >= 60 and m % 60 == 0 else f"每 {m} 分钟"
     if row.mode == "cron":
         return f"cron: {row.cron}"
-    try:
-        weekdays = sorted(json.loads(row.weekdays or "[]"))
-    except Exception:  # noqa: BLE001
-        weekdays = []
-    days = "/".join(WEEKDAY_NAMES[d] for d in weekdays) if weekdays else "每天"
-    return f"{days} {row.at_time}"
+    if row.mode == "weekly":
+        try:
+            weekdays = sorted(json.loads(row.weekdays or "[]"))
+        except Exception:  # noqa: BLE001
+            weekdays = []
+        days = "/".join(WEEKDAY_NAMES[d] for d in weekdays) if weekdays else "每天"
+        return f"{days} {row.at_time}"
+    return f"每天 {row.at_time}"
 
 
 def schedule_snapshot(row: Schedule, next_run_at=None) -> dict:

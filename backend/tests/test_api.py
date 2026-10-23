@@ -174,6 +174,17 @@ class TestSchedulesAPI:
         # 删除
         assert client.delete(f"/api/schedules/{sid}").json()["deleted"] is True
 
+    def test_daily_ignores_weekdays_in_trigger_desc(self, client):
+        payload = dict(self.PAYLOAD, mode="daily", at_time="09:00", weekdays=[0])
+        r = client.post("/api/schedules", json=payload)
+        assert r.status_code == 200
+        row = r.json()["schedule"]
+        try:
+            assert row["weekdays"] == []
+            assert row["trigger_desc"] == "每天 09:00"
+        finally:
+            client.delete(f"/api/schedules/{row['id']}")
+
     def test_validation(self, client):
         r = client.post("/api/schedules", json={"name": "x", "mode": "bad", "selections": []})
         assert r.status_code in (400, 422)

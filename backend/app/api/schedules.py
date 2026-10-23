@@ -85,7 +85,7 @@ def _apply(row: Schedule, req: ScheduleIn) -> None:
     row.mode = req.mode
     row.interval_minutes = req.interval_minutes
     row.at_time = req.at_time
-    row.weekdays = json.dumps(sorted(set(req.weekdays)))
+    row.weekdays = json.dumps(sorted(set(req.weekdays)) if req.mode == "weekly" else [])
     row.cron = req.cron
     row.selections = json.dumps([s.model_dump() for s in req.selections], ensure_ascii=False)
     row.options = req.options.to_json()

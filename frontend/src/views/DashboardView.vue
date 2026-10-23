@@ -38,7 +38,10 @@ watch(() => events.statsVersion, load)
 
 function quickAdd() {
   const urls = extractUrls(urlsText.value)
-  if (!urls.length) return
+  if (!urls.length) {
+    message.warning('未在输入中识别到有效链接')
+    return
+  }
   pendingUrls.value = urls
   showOptions.value = true
 }
