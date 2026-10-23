@@ -121,9 +121,9 @@ stack entirely; filling `EVIL0CTAL_API_KEY` in `.env` switches to manual key man
 
 | Value | Encoder | Requirement |
 |---|---|---|
-| `nvidia` | `hevc_nvenc` | **Native Linux host** + NVIDIA driver + [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). Note: WSL2 / Docker Desktop GPU passthrough carries CUDA only — no NVENC — so hardware transcoding isn't available there (auto mode falls back to CPU) |
+| `nvidia` | `hevc_nvenc` | NVIDIA driver + [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (enabled automatically on Windows Docker Desktop ≥ 4.29 with `video` driver capability) |
 | `intel` | `hevc_qsv` | Linux host with Intel iGPU (`/dev/dri` passthrough) |
-| `auto` | detect | `nvidia-smi` + docker runtime (Linux only), else `/dev/dri`, else CPU |
+| `auto` | detect | `nvidia-smi` + docker nvidia runtime, else `/dev/dri`, else CPU |
 | `cpu` | `libx265` | none (fallback) |
 
 The app probes and test-encodes at runtime (`hw_encoder=auto`), so no other config is needed.

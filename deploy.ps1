@@ -75,7 +75,9 @@ function Set-EnvValue([string]$key, [string]$value) {
     if (Test-Path ".env") {
         $found = $false
         $lines = Get-Content ".env" | ForEach-Object {
-            if ($_ -match "^$key=") { $found = $true; "$key=$value" } else { $_ }
+            if ($_ -match "^$key=") {
+                if (-not $found) { $found = $true; "$key=$value" }
+            } else { $_ }
         }
         Set-Content ".env" $lines -Encoding ASCII
         if (-not $found) { Add-Content ".env" "$key=$value" -Encoding ASCII }
@@ -132,10 +134,7 @@ function Test-NvidiaRuntime {
 function Get-DetectedGpu {
     if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
         if (Test-NvidiaRuntime) {
-            # Docker Desktop (WSL2) GPU passthrough carries CUDA only - no NVENC video
-            # encoder - so hardware transcoding cannot work; keep CPU in auto mode.
-            Warn "NVIDIA detected, but Docker Desktop/WSL2 does not pass the NVENC video encoder - auto mode stays on CPU (a native Linux host enables it fully; force with GPU=nvidia)"
-            return "cpu"
+            return "nvidia"
         }
         Warn "NVIDIA driver detected but Docker has no nvidia runtime - enable GPU support in Docker Desktop settings; falling back for this run"
     }
@@ -209,8 +208,6 @@ function Ensure-Dtk {
         )
         Info "Generated $DTK_DIR\.env (random secrets)"
     }
-    # Shared external network declared in docker-compose.evil0ctal.yml
-    try { docker network create dtk_edge 2>$null } catch { }
     Info "Starting Evil0ctal stack (api/postgres/redis pull prebuilt images, browser container builds locally; ~10 min first run)..."
     Invoke-DtkCompose --profile browser up -d --build --wait --wait-timeout 300
     if ($LASTEXITCODE -eq 0) {
@@ -399,13 +396,16 @@ switch ($Command.ToLower()) {
     "up"      { Invoke-Up }
     "down" {
         Ensure-Docker
-        Compose down
+        Compose down --remove-orphans
         if (Test-Path "$DTK_DIR\docker\compose.yml") {
             Info "Stopping Evil0ctal ..."
             # --profile browser is required: compose only removes services in active profiles,
             # otherwise the browser container is left behind
             Invoke-DtkCompose --profile browser down --remove-orphans
             if ($LASTEXITCODE -ne 0) { Warn "Evil0ctal stop failed (can be ignored)" }
+        }
+        if (Test-DtkNetwork) {
+            try { docker network rm dtk_edge *> $null } catch { }
         }
         Info "Stopped."
     }

@@ -91,9 +91,9 @@ Evil0ctal 开关），默认同时部署 **Evil0ctal 兜底服务**，然后构�
 
 | 取值 | 编码器 | 要求 |
 |---|---|---|
-| `nvidia` | `hevc_nvenc` | **原生 Linux 宿主机** + NVIDIA 驱动 + [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)。注意：WSL2 / Docker Desktop 的 GPU 直通只含 CUDA、不含 NVENC 视频编码器，此类环境无法硬件转码（auto 模式自动回退 CPU） |
+| `nvidia` | `hevc_nvenc` | NVIDIA 驱动 + [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)（Windows Docker Desktop ≥ 4.29 自动支持，需启用 `video` 驱动能力） |
 | `intel` | `hevc_qsv` | Linux 宿主机 + Intel 核显（直通 `/dev/dri`） |
-| `auto` | 自动探测 | 原生 Linux 上 nvidia-smi 且 docker 运行时可用 → nvidia；有 `/dev/dri` → intel；否则 CPU |
+| `auto` | 自动探测 | `nvidia-smi` 且 docker nvidia 运行时可用 → nvidia；有 `/dev/dri` → intel；否则 CPU |
 | `cpu` | `libx265` | 无（回退） |
 
 应用运行时会自行探测并试编码（`hw_encoder=auto`），无需其他配置。AMD 显卡注意：镜像

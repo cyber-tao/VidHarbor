@@ -4,14 +4,19 @@
 #   https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
 #   (Docker Desktop ≥ 4.29 on Windows enables this automatically with a recent driver)
 #
+# NVIDIA_DRIVER_CAPABILITIES must include `video` (not just the default
+# `compute,utility`) so libnvidia-encode.so.1 is mounted for hevc_nvenc.
+#
 # VidHarbor detects the encoder at runtime (Settings → hw_encoder = auto);
 # with the GPU visible, HEVC transcodes go through hevc_nvenc instead of libx265.
 services:
   vidharbor:
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,video
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
               count: all
-              capabilities: [gpu]
+              capabilities: [gpu, compute, utility, video]

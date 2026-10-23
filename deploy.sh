@@ -161,13 +161,11 @@ docker_has_nvidia_runtime() {
 }
 
 detect_gpu() {
-  if command -v nvidia-smi >/dev/null 2>&1 && docker_has_nvidia_runtime; then
-    # 仅原生 Linux 宿主机自动启用：WSL2/Docker Desktop 的 GPU 直通只含 CUDA，
-    # 不含视频编码器（NVENC），硬件转码无法工作
-    if [[ "$(os_kind)" == "linux" ]]; then
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    if docker_has_nvidia_runtime; then
       echo "nvidia"; return
     fi
-    warn "检测到 NVIDIA，但 WSL2/Docker Desktop 不直通视频编码器（NVENC），自动模式下使用 CPU 转码（Linux 宿主机可完整启用，或强制 GPU=nvidia）"
+    warn "检测到 NVIDIA 驱动但 Docker 缺少 nvidia 运行时，本次回退 CPU 转码"
   fi
   if [[ -e /dev/dri ]]; then
     echo "intel"; return
@@ -245,8 +243,6 @@ DTK_BROWSER_RPC_URL=http://browser-rpc:9000
 EOF
     info "已生成 $DTK_DIR/.env（随机密钥）"
   fi
-  # VidHarbor 与 dtk 共用的外部网络（compose 文件里声明为 external）
-  docker network create dtk_edge >/dev/null 2>&1 || true
   info "启动 Evil0ctal 栈（api/postgres/redis 拉预构建镜像，浏览器容器本地构建；首次约 10 分钟）..."
   if dtk_compose --profile browser up -d --build --wait --wait-timeout 300; then
     touch "$DTK_DIR/.deploy-ok"
@@ -275,10 +271,12 @@ dtk_setup_hint() {
 }
 
 dtk_down() {
-  [[ -d "$DTK_DIR/docker" ]] || return 0
-  info "停止 Evil0ctal ..."
-  # 必须带 --profile browser：compose 只清理当前启用 profile 的服务，否则浏览器容器会残留
-  dtk_compose --profile browser down --remove-orphans || warn "Evil0ctal 停止失败（可忽略）"
+  if [[ -d "$DTK_DIR/docker" ]]; then
+    info "停止 Evil0ctal ..."
+    # 必须带 --profile browser：compose 只清理当前启用 profile 的服务，否则浏览器容器会残留
+    dtk_compose --profile browser down --remove-orphans || warn "Evil0ctal 停止失败（可忽略）"
+  fi
+  docker network rm dtk_edge >/dev/null 2>&1 || true
 }
 
 # —— Evil0ctal 首次向导 + API Key 全自动配置（无需打开控制台手工操作）——
@@ -402,7 +400,7 @@ cmd_up() {
 
 cmd_down() {
   ensure_docker
-  compose down
+  compose down --remove-orphans
   dtk_down
   info "已停止"
 }
