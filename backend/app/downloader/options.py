@@ -111,6 +111,10 @@ def build_format_selector(eff: EffectiveOptions) -> str:
             f"bv*{h}+{audio}",
             f"b{h}",
         ]
+    if h:
+        # 竖屏视频（如 9:16 的 360x640）最小流的 height 也可能大于 max_height（如 360），
+        # 所有带 height<= 的分支均不命中时回退到最低分辨率流，避免直接报 format not available
+        chains += [f"wv*+{audio}", "w"]
     return "/".join(chains)
 
 

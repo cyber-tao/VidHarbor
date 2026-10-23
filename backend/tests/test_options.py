@@ -42,8 +42,10 @@ class TestFormatSelector:
         eff = _eff(max_height=720)
         sel = build_format_selector(eff)
         assert "[height<=720]" in sel
+        assert sel.endswith("/w")
         eff0 = _eff(max_height=0)
         assert "height<=" not in build_format_selector(eff0)
+        assert not build_format_selector(eff0).endswith("/w")
 
     def test_audio_lang_chain(self):
         eff = _eff(audio_langs=["zh", "ja"])
