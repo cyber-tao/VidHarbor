@@ -23,26 +23,16 @@ VidHarbor（影坞）下载 **YouTube / 哔哩哔哩 / TikTok / 抖音** 视频�
 （B站扫码）、设置中心、实时日志的 Web 控制台。支持 **Windows / Linux / macOS**，
 可裸机运行，也可 **Docker** 部署（x86-64 / ARM64）。
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  浏览器 (Vue 3 + Tailwind + Naive UI + ECharts)                  │
-│  仪表盘 · 热门榜单(分类×时间段,批量下载) · 任务 · 视频库(标签筛选)  │
-│  定时任务 · 设置(登录管理/扫码) · 日志抽屉                          │
-└───────────────┬──────────────────────── REST + SSE ─────────────┘
-                FastAPI (uvicorn，单 worker)
-        ├── 下载队列(线程池，按平台限流)
-        │     ├── yt-dlp 主引擎（清晰度/字幕/音轨选项, 下载前去重, 失败自动切换）
-        │     ├── 文案清洗: 分享文案提取链接 + 短链展开(v.douyin/vm.tiktok)
-        │     └── Evil0ctal v5 兜底(抖音/TikTok, 无水印直链)
-        ├── 后处理: ffprobe → remux(-c copy)/HEVC转码(硬件优先: NVENC/QSV/AMF/
-        │   VideoToolbox) → 规范命名
-        ├── 榜单服务: B站官方API(综合/三日/周榜/每周必看/入站必刷) / YouTube(官方API
-        │   或搜索) / 抖音热搜+关键词搜索 / TikTok标签
-        ├── 定时任务: APScheduler（多榜单组合, 自动跳过库中已有）
-        ├── 登录管理: B站扫码登录 / 浏览器 cookies 导入 / 上传 cookies.txt
-        └── SQLite(WAL): videos / subtitles / tags / tasks / charts_cache
-                          / schedules / app_settings
-```
+| 模块 | 说明 |
+|---|---|
+| **浏览器** | Vue 3 + Tailwind + Naive UI + ECharts。仪表盘、热门榜单（分类 × 时间段，批量下载）、任务、视频库（标签筛选）、定时任务、设置（登录管理 / 扫码）、日志抽屉。经 REST + SSE 连接后端 |
+| **FastAPI** | uvicorn，单 worker |
+| **下载队列** | 线程池，按平台限流<br>• yt-dlp 主引擎：清晰度 / 字幕 / 音轨，下载前去重，失败自动切换<br>• 文案清洗：从分享文案提取链接，展开短链（v.douyin / vm.tiktok）<br>• Evil0ctal v5 兜底：抖音 / TikTok 无水印直链 |
+| **后处理** | ffprobe → remux（`-c copy`）或 HEVC 转码（硬件优先：NVENC / QSV / AMF / VideoToolbox）→ 规范命名 |
+| **榜单服务** | B站官方 API（综合 / 三日 / 周榜 / 每周必看 / 入站必刷）、YouTube（官方 API 或搜索）、抖音热搜与关键词搜索、TikTok 标签 |
+| **定时任务** | APScheduler，多榜单组合，自动跳过库中已有 |
+| **登录管理** | B站扫码登录、浏览器 cookies 导入、上传 cookies.txt |
+| **SQLite（WAL）** | videos、subtitles、tags、tasks、charts_cache、schedules、app_settings |
 
 ## ✨ 功能
 

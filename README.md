@@ -25,28 +25,16 @@ management (Bilibili QR), a settings center, and live streaming logs.
 
 Runs on **Windows / Linux / macOS** — bare metal or **Docker** (x86-64 / ARM64).
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Browser (Vue 3 + Tailwind + Naive UI + ECharts)                │
-│  Dashboard · Charts (category × period, batch download)         │
-│  Tasks · Library (tag filtering) · Schedules · Settings · Logs  │
-└───────────────┬──────────────────────── REST + SSE ─────────────┘
-                FastAPI (uvicorn, single worker)
-        ├── Download queue (thread pool, per-platform caps)
-        │     ├── yt-dlp primary engine (quality / subtitles / audio-track options,
-        │     │   pre-download dedup, auto-switch on failure)
-        │     ├── Share-text cleaning: link extraction + short-link expansion
-        │     │   (v.douyin / vm.tiktok)
-        │     └── Evil0ctal v5 fallback (Douyin / TikTok)
-        ├── Post-processing: ffprobe → remux (-c copy) / HEVC transcode
-        │   (hardware first: NVENC/QSV/AMF/VideoToolbox) → normalized naming
-        ├── Chart providers: Bilibili official API / YouTube (Data API or search)
-        │   / Douyin hot-search + keyword search / TikTok hashtag
-        ├── Scheduler: APScheduler (multi-chart combos, skip items already in library)
-        ├── Login management: Bilibili QR / browser-cookie import / cookies.txt upload
-        └── SQLite (WAL): videos / subtitles / tags / tasks / charts_cache
-                           / schedules / app_settings
-```
+| Module | Role |
+|---|---|
+| **Browser** | Vue 3 + Tailwind + Naive UI + ECharts. Dashboard, charts (category × period, batch download), tasks, library (tag filtering), schedules, settings, and logs. Talks to the backend over REST + SSE |
+| **FastAPI** | uvicorn, single worker |
+| **Download queue** | Thread pool with per-platform caps<br>• yt-dlp primary engine: quality / subtitles / audio track, dedup before download, auto-switch on failure<br>• Share-text cleaning: extract links and expand short links (v.douyin / vm.tiktok)<br>• Evil0ctal v5 fallback: Douyin / TikTok direct links |
+| **Post-processing** | ffprobe → remux (`-c copy`) or HEVC transcode (hardware first: NVENC / QSV / AMF / VideoToolbox) → normalized names |
+| **Charts** | Bilibili official API, YouTube (Data API or search), Douyin hot search and keyword search, TikTok hashtags |
+| **Scheduler** | APScheduler; one job can combine several charts and skips items already in the library |
+| **Login** | Bilibili QR, browser-cookie import, cookies.txt upload |
+| **SQLite (WAL)** | videos, subtitles, tags, tasks, charts_cache, schedules, app_settings |
 
 ## ✨ Features
 
