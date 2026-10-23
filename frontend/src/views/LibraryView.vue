@@ -22,9 +22,16 @@ const PLATFORM_FILTERS = [
   { id: 'other', label: PLATFORMS.other.label },
 ]
 
-// 标签聚合筛选（多选 = AND）
+function parseTags(raw) {
+  return typeof raw === 'string' && raw.trim()
+    ? raw.split(',').map((s) => s.trim()).filter(Boolean)
+    : []
+}
+
+// 标签聚合筛选（多选 = AND）。详情页点标签带 ?tag= 进来：创建时就取好，
+// 挂载后再赋值会触发下面的 watcher，与 onMounted 的加载重复
 const allTags = ref([])
-const activeTags = ref([])
+const activeTags = ref(parseTags(route.query.tag))
 
 let searchTimer = null
 
@@ -53,22 +60,25 @@ async function loadTags() {
   } catch { /* 静默 */ }
 }
 
+// 筛选条件变化回到第 1 页：已在第 1 页就直接加载，否则只改页码、由 page 的 watcher 加载
+function reload() {
+  if (page.value === 1) load()
+  else page.value = 1
+}
+
 onMounted(() => {
-  const t = route.query.tag
-  if (typeof t === 'string' && t.trim()) activeTags.value = t.split(',').map((s) => s.trim()).filter(Boolean)
   load(); loadTags()
 })
 
 watch(q, () => {
   clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => { page.value = 1; load() }, 400)
+  searchTimer = setTimeout(reload, 400)
 })
 watch(platform, () => {
-  page.value = 1
-  load(); loadTags()
+  reload(); loadTags()
 })
 watch(page, load)
-watch(activeTags, () => { page.value = 1; load() }, { deep: true })
+watch(activeTags, reload, { deep: true })
 
 function toggleTag(name) {
   const i = activeTags.value.indexOf(name)
