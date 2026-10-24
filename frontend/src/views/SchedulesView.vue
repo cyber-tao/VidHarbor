@@ -1,10 +1,10 @@
 <script setup>
-// 定时任务：一个任务可组合多个榜单选择（平台×分类×周期×TopN），到点自动抓取入库（库中已有的自动跳过）
-import { onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useRoute } from 'vue-router'
 import { api } from '../api.js'
 import { PLATFORM_OPTIONS as PLATFORM_TABS, fmtDateTime, platformLabel } from '../format.js'
+import { isZh, t, tCategory, tPeriod, tTriggerDesc } from '../i18n.js'
 import { useEvents } from '../stores.js'
 
 const message = useMessage()
@@ -30,12 +30,15 @@ onMounted(() => {
   load()
   PLATFORM_TABS.forEach((p) => ensureMeta(p.id))
 })
-// 定时任务产生下载 → 完成时刷新（stats_dirty 已 bump）
 watch(() => events.statsVersion, () => load())
 
-const WEEKDAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const weekdays = computed(() =>
+  isZh.value
+    ? ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+    : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+)
 
-// ---- 编辑器 ----
+// ---- Editor ----
 const editor = reactive({
   show: false, id: 0, name: '', mode: 'daily',
   at_time: '09:00', weekdays: [0], interval_minutes: 120, cron: '0 9 * * *',
@@ -54,7 +57,6 @@ async function ensureMeta(platform) {
   }
 }
 
-// 定时任务只能选可直接下载的分类（抖音热搜是话题榜，只能用自定义关键词）
 function catsOf(platform) { return (metaCache[platform] ?? []).filter((c) => c.downloadable !== false) }
 function allowCustom(platform) { return (metaCache[platform] ?? []).some((c) => c.allow_custom) }
 function periodsOf(sel) {
@@ -87,14 +89,18 @@ function selectionPayload(sel) {
   if (category === '__custom__') category = `custom:${sel.custom.trim()}`
   return { platform: sel.platform, category, period: sel.period, limit: Number(sel.limit) || 10 }
 }
-// 列表卡片上的榜单摘要（中文分类名 + 周期）
+
 function selectionText(s) {
   const cats = metaCache[s.platform] ?? []
   const isCustom = String(s.category).startsWith('custom:')
   const cat = cats.find((c) => c.id === s.category)
-  const catName = isCustom ? `“${String(s.category).slice(7)}”` : (cat?.name ?? s.category)
-  const per = cat?.periods?.find((p) => p.id === s.period)?.name ?? ''
-  const perText = per && per !== '综合' && per !== '默认' ? ` · ${per}` : ''
+  const catName = isCustom
+    ? `“${String(s.category).slice(7)}”`
+    : tCategory(s.platform, s.category, cat?.name ?? s.category)
+  const perObj = cat?.periods?.find((p) => p.id === s.period)
+  const per = perObj ? tPeriod(perObj.id, perObj.name, s.platform) : ''
+  const isDefaultPer = !s.period || s.period === 'default'
+  const perText = per && !isDefaultPer ? ` · ${per}` : ''
   return `${platformLabel(s.platform)} · ${catName}${perText} · Top${s.limit}`
 }
 
@@ -135,10 +141,10 @@ async function openEdit(row) {
 
 const saving = ref(false)
 async function save() {
-  if (!editor.name.trim()) { message.error('请填写任务名'); return }
-  if (!editor.selections.length) { message.error('至少添加一个榜单选择'); return }
+  if (!editor.name.trim()) { message.error(t('schedules.errNameRequired')); return }
+  if (!editor.selections.length) { message.error(t('schedules.errSelectionRequired')); return }
   if (editor.selections.some((s) => s.category === '__custom__' && !s.custom.trim())) {
-    message.error('自定义关键词不能为空'); return
+    message.error(t('schedules.errCustomRequired')); return
   }
   const options = editor.useDefault ? {} : buildOptions()
   const payload = {
@@ -154,7 +160,7 @@ async function save() {
   try {
     if (editor.id) await api.updateSchedule(editor.id, payload)
     else await api.createSchedule(payload)
-    message.success(editor.id ? '已更新' : '已创建')
+    message.success(editor.id ? t('schedules.updatedMsg') : t('schedules.createdMsg'))
     editor.show = false
     load()
   } catch (e) {
@@ -190,35 +196,39 @@ async function runNow(row) {
   } catch (e) { message.error(e.message) } finally { running.value = 0 }
 }
 async function remove(row) {
-  if (!window.confirm(`确认删除定时任务「${row.name}」？`)) return
+  if (!window.confirm(t('schedules.confirmDelete', { name: row.name }))) return
   try {
     await api.deleteSchedule(row.id)
     load()
   } catch (e) { message.error(e.message) }
 }
 
-const HEIGHTS = [
-  { v: 0, label: '最佳（不限）' }, { v: 2160, label: '2160p' }, { v: 1440, label: '1440p' },
-  { v: 1080, label: '1080p' }, { v: 720, label: '720p' }, { v: 480, label: '480p' },
-]
+const heights = computed(() => [
+  { v: 0, label: t('optionsDialog.bestUnlimited') },
+  { v: 2160, label: '2160p' },
+  { v: 1440, label: '1440p' },
+  { v: 1080, label: '1080p' },
+  { v: 720, label: '720p' },
+  { v: 480, label: '480p' },
+])
 </script>
 
 <template>
   <div class="mx-auto max-w-4xl space-y-4 p-6">
     <div class="flex items-center gap-3">
-      <h1 class="text-xl font-semibold">定时任务</h1>
-      <span class="text-xs text-zinc-500">按时间自动下载榜单内容，库中已有的视频自动跳过</span>
+      <h1 class="text-xl font-semibold">{{ t('schedules.title') }}</h1>
+      <span class="text-xs text-zinc-500">{{ t('schedules.subtitle') }}</span>
       <button @click="openCreate"
         class="ml-auto rounded-lg bg-indigo-500 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-400">
-        + 新建定时任务
+        {{ t('schedules.createBtn') }}
       </button>
     </div>
 
-    <div v-if="loading && !list.length" class="py-16 text-center text-sm text-zinc-600">加载中…</div>
+    <div v-if="loading && !list.length" class="py-16 text-center text-sm text-zinc-600">{{ t('schedules.loading') }}</div>
     <div v-else-if="!list.length" class="flex flex-col items-center gap-2 py-16 text-zinc-600">
       <span class="text-3xl">⏱️</span>
-      <span class="text-sm">还没有定时任务</span>
-      <span class="text-xs">例如：每天 9 点自动下载 B站游戏区周榜 Top10 + YouTube 音乐月榜 Top5</span>
+      <span class="text-sm">{{ t('schedules.emptyTitle') }}</span>
+      <span class="text-xs">{{ t('schedules.emptyExample') }}</span>
     </div>
 
     <div v-for="row in list" :key="row.id"
@@ -226,24 +236,24 @@ const HEIGHTS = [
       :class="focusId === row.id ? 'border-indigo-500/70 bg-indigo-500/5' : 'border-zinc-800 bg-zinc-900/60'">
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-sm font-medium text-zinc-100">{{ row.name }}</span>
-        <span class="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-400">{{ row.trigger_desc }}</span>
+        <span class="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-400">{{ tTriggerDesc(row) }}</span>
         <span :class="['rounded-full px-2 py-0.5 text-[10px]',
           row.enabled ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-800 text-zinc-500']">
-          {{ row.enabled ? '启用' : '停用' }}
+          {{ row.enabled ? t('schedules.enabled') : t('schedules.disabled') }}
         </span>
         <div class="ml-auto flex items-center gap-1.5">
           <button @click="runNow(row)" :disabled="running === row.id"
             class="rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-300 hover:border-indigo-500/60 hover:text-indigo-300 disabled:opacity-40">
-            {{ running === row.id ? '启动中…' : '立即运行' }}
+            {{ running === row.id ? t('schedules.runningBtn') : t('schedules.runNowBtn') }}
           </button>
           <button @click="openEdit(row)"
-            class="rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-300 hover:border-zinc-500">编辑</button>
+            class="rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-300 hover:border-zinc-500">{{ t('schedules.editBtn') }}</button>
           <button @click="toggle(row)"
             class="rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-300 hover:border-amber-500/60 hover:text-amber-300">
-            {{ row.enabled ? '停用' : '启用' }}
+            {{ row.enabled ? t('schedules.disableBtn') : t('schedules.enableBtn') }}
           </button>
           <button @click="remove(row)"
-            class="rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-500 hover:border-red-500/60 hover:text-red-300">删除</button>
+            class="rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-500 hover:border-red-500/60 hover:text-red-300">{{ t('schedules.deleteBtn') }}</button>
         </div>
       </div>
 
@@ -255,12 +265,12 @@ const HEIGHTS = [
       </div>
 
       <div class="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-zinc-500">
-        <span>下次运行：<span class="text-zinc-300">{{ row.next_run_at ? fmtDateTime(row.next_run_at) : '—' }}</span></span>
-        <span>上次运行：<span class="text-zinc-300">{{ row.last_run_at ? fmtDateTime(row.last_run_at) : '—' }}</span></span>
+        <span>{{ t('schedules.nextRun') }}<span class="text-zinc-300">{{ row.next_run_at ? fmtDateTime(row.next_run_at) : '—' }}</span></span>
+        <span>{{ t('schedules.lastRun') }}<span class="text-zinc-300">{{ row.last_run_at ? fmtDateTime(row.last_run_at) : '—' }}</span></span>
         <template v-if="row.last_result">
-          <span class="text-emerald-400/80">新建 {{ row.last_result.created }}</span>
-          <span>跳过 {{ row.last_result.skipped }}</span>
-          <span v-if="row.last_result.failed" class="text-red-400/80">失败 {{ row.last_result.failed }}</span>
+          <span class="text-emerald-400/80">{{ t('schedules.resCreated', { n: row.last_result.created }) }}</span>
+          <span>{{ t('schedules.resSkipped', { n: row.last_result.skipped }) }}</span>
+          <span v-if="row.last_result.failed" class="text-red-400/80">{{ t('schedules.resFailed', { n: row.last_result.failed }) }}</span>
         </template>
       </div>
       <div v-if="row.last_result?.errors?.length"
@@ -269,26 +279,26 @@ const HEIGHTS = [
       </div>
     </div>
 
-    <!-- 编辑器弹窗 -->
+    <!-- Editor Modal -->
     <div v-if="editor.show" class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-6" @click.self="editor.show = false">
       <div class="w-full max-w-2xl overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900">
         <div class="border-b border-zinc-800 px-4 py-3 text-sm font-medium">
-          {{ editor.id ? '编辑定时任务' : '新建定时任务' }}
+          {{ editor.id ? t('schedules.editTitle') : t('schedules.newTitle') }}
         </div>
         <div class="max-h-[70vh] space-y-4 overflow-y-auto p-4">
           <label class="block">
-            <span class="mb-1 block text-xs text-zinc-400">任务名称</span>
-            <input v-model="editor.name" placeholder="如：每日热榜自动追更"
+            <span class="mb-1 block text-xs text-zinc-400">{{ t('schedules.nameLabel') }}</span>
+            <input v-model="editor.name" :placeholder="t('schedules.namePlaceholder')"
               class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
           </label>
 
-          <!-- 触发时间 -->
+          <!-- Trigger Time -->
           <div>
-            <div class="mb-1.5 text-xs text-zinc-400">运行时间</div>
+            <div class="mb-1.5 text-xs text-zinc-400">{{ t('schedules.runTimeLabel') }}</div>
             <div class="flex gap-1 rounded-lg border border-zinc-800 bg-zinc-950 p-1 text-xs">
               <button v-for="m in [
-                { v: 'daily', label: '每天' }, { v: 'weekly', label: '每周' },
-                { v: 'interval', label: '间隔' }, { v: 'cron', label: 'Cron' }]"
+                { v: 'daily', label: t('schedules.modeDaily') }, { v: 'weekly', label: t('schedules.modeWeekly') },
+                { v: 'interval', label: t('schedules.modeInterval') }, { v: 'cron', label: t('schedules.modeCron') }]"
                 :key="m.v" @click="editor.mode = m.v"
                 class="rounded px-3 py-1"
                 :class="editor.mode === m.v ? 'bg-indigo-500 text-white' : 'text-zinc-400 hover:text-zinc-200'">
@@ -297,12 +307,12 @@ const HEIGHTS = [
             </div>
             <div class="mt-2.5 space-y-2.5">
               <div v-if="editor.mode === 'daily' || editor.mode === 'weekly'" class="flex items-center gap-2 text-xs text-zinc-300">
-                <span class="text-zinc-500">时间</span>
+                <span class="text-zinc-500">{{ t('schedules.timeLabel') }}</span>
                 <input v-model="editor.at_time" type="time"
                   class="rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 outline-none focus:border-indigo-500" />
               </div>
               <div v-if="editor.mode === 'weekly'" class="flex flex-wrap gap-1.5">
-                <button v-for="(d, i) in WEEKDAYS" :key="i" @click="editor.weekdays.includes(i)
+                <button v-for="(d, i) in weekdays" :key="i" @click="editor.weekdays.includes(i)
                   ? editor.weekdays = editor.weekdays.filter((x) => x !== i)
                   : editor.weekdays.push(i)"
                   class="rounded-full border px-2.5 py-1 text-[11px]"
@@ -313,25 +323,25 @@ const HEIGHTS = [
                 </button>
               </div>
               <div v-if="editor.mode === 'interval'" class="flex items-center gap-2 text-xs text-zinc-300">
-                <span class="text-zinc-500">每</span>
+                <span class="text-zinc-500">{{ t('schedules.everyPrefix') }}</span>
                 <input v-model.number="editor.interval_minutes" type="number" min="1"
                   class="w-24 rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 outline-none focus:border-indigo-500" />
-                <span class="text-zinc-500">分钟运行一次</span>
+                <span class="text-zinc-500">{{ t('schedules.everyMinutesSuffix') }}</span>
               </div>
               <div v-if="editor.mode === 'cron'" class="flex items-center gap-2 text-xs text-zinc-300">
-                <span class="text-zinc-500">Cron 表达式</span>
+                <span class="text-zinc-500">{{ t('schedules.cronLabel') }}</span>
                 <input v-model="editor.cron" placeholder="0 9 * * *"
                   class="flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 font-mono text-xs text-zinc-200 outline-none focus:border-indigo-500" />
               </div>
             </div>
           </div>
 
-          <!-- 榜单组合 -->
+          <!-- Chart Selections -->
           <div>
             <div class="mb-1.5 flex items-center gap-2">
-              <span class="text-xs text-zinc-400">榜单组合</span>
+              <span class="text-xs text-zinc-400">{{ t('schedules.chartCombo') }}</span>
               <button @click="addSelection"
-                class="rounded border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-300 hover:border-indigo-500/60 hover:text-indigo-300">+ 添加榜单</button>
+                class="rounded border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-300 hover:border-indigo-500/60 hover:text-indigo-300">{{ t('schedules.addChart') }}</button>
             </div>
             <div class="space-y-2">
               <div v-for="(sel, i) in editor.selections" :key="i"
@@ -343,41 +353,41 @@ const HEIGHTS = [
                   </select>
                   <select v-model="sel.category" @change="onSelCategory(sel)"
                     class="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200 outline-none focus:border-indigo-500">
-                    <option v-for="c in catsOf(sel.platform)" :key="c.id" :value="c.id">{{ c.name }}</option>
-                    <option v-if="allowCustom(sel.platform)" value="__custom__">自定义…</option>
+                    <option v-for="c in catsOf(sel.platform)" :key="c.id" :value="c.id">{{ tCategory(sel.platform, c.id, c.name) }}</option>
+                    <option v-if="allowCustom(sel.platform)" value="__custom__">{{ t('schedules.customOption') }}</option>
                   </select>
-                  <input v-if="sel.category === '__custom__'" v-model="sel.custom" placeholder="关键词 / 标签"
+                  <input v-if="sel.category === '__custom__'" v-model="sel.custom" :placeholder="t('schedules.customPlaceholder')"
                     class="w-32 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
                   <select v-if="periodsOf(sel).length > 1" v-model="sel.period"
                     class="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200 outline-none focus:border-indigo-500">
-                    <option v-for="p in periodsOf(sel)" :key="p.id" :value="p.id">{{ p.name }}</option>
+                    <option v-for="p in periodsOf(sel)" :key="p.id" :value="p.id">{{ tPeriod(p.id, p.name, sel.platform) }}</option>
                   </select>
                   <span class="text-zinc-500">Top</span>
                   <input v-model.number="sel.limit" type="number" min="1" max="100"
                     class="w-16 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200 outline-none focus:border-indigo-500" />
                   <button @click="removeSelection(i)" :disabled="editor.selections.length <= 1"
-                    class="ml-auto rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-500 hover:border-red-500/60 hover:text-red-300 disabled:opacity-30">移除</button>
+                    class="ml-auto rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-500 hover:border-red-500/60 hover:text-red-300 disabled:opacity-30">{{ t('schedules.removeBtn') }}</button>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- 下载选项 -->
+          <!-- Download Options -->
           <div>
             <label class="flex items-center gap-2 text-xs text-zinc-300">
               <input type="checkbox" v-model="editor.useDefault" class="accent-indigo-500" />
-              使用全局默认下载选项
+              {{ t('schedules.useGlobalDefault') }}
             </label>
             <div v-if="!editor.useDefault" class="mt-2 grid grid-cols-2 gap-3">
               <label class="space-y-1">
-                <span class="text-[11px] text-zinc-500">最高清晰度</span>
+                <span class="text-[11px] text-zinc-500">{{ t('schedules.maxHeight') }}</span>
                 <select v-model.number="editor.max_height"
                   class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:border-indigo-500">
-                  <option v-for="h in HEIGHTS" :key="h.v" :value="h.v">{{ h.label }}</option>
+                  <option v-for="h in heights" :key="h.v" :value="h.v">{{ h.label }}</option>
                 </select>
               </label>
               <label class="space-y-1">
-                <span class="text-[11px] text-zinc-500">目标编码</span>
+                <span class="text-[11px] text-zinc-500">{{ t('schedules.targetCodec') }}</span>
                 <select v-model="editor.codec"
                   class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:border-indigo-500">
                   <option value="h265">H.265</option>
@@ -385,7 +395,7 @@ const HEIGHTS = [
                 </select>
               </label>
               <label class="col-span-2 space-y-1">
-                <span class="text-[11px] text-zinc-500">字幕语言（留空=全局默认）</span>
+                <span class="text-[11px] text-zinc-500">{{ t('schedules.subLangsHint') }}</span>
                 <input v-model="editor.sub_langs" placeholder="zh.*, en.*"
                   class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 font-mono text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
               </label>
@@ -394,10 +404,10 @@ const HEIGHTS = [
         </div>
         <div class="flex justify-end gap-2 border-t border-zinc-800 px-4 py-3">
           <button @click="editor.show = false"
-            class="rounded-lg border border-zinc-700 px-3.5 py-1.5 text-xs text-zinc-300 hover:border-zinc-500">取消</button>
+            class="rounded-lg border border-zinc-700 px-3.5 py-1.5 text-xs text-zinc-300 hover:border-zinc-500">{{ t('schedules.cancelBtn') }}</button>
           <button :disabled="saving" @click="save"
             class="rounded-lg bg-indigo-500 px-4 py-1.5 text-xs font-medium text-white hover:bg-indigo-400 disabled:opacity-40">
-            {{ saving ? '保存中…' : '保存' }}
+            {{ saving ? t('schedules.savingBtn') : t('schedules.saveBtn') }}
           </button>
         </div>
       </div>

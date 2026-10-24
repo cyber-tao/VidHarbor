@@ -2,6 +2,7 @@
 import { nextTick, ref, watch } from 'vue'
 import { useEvents } from '../stores.js'
 import { fmtTime } from '../format.js'
+import { t, tLogMessage } from '../i18n.js'
 
 const events = useEvents()
 const bodyRef = ref(null)
@@ -33,7 +34,7 @@ watch(
 
 <template>
   <div class="fixed bottom-0 left-52 right-0 z-40 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur">
-    <!-- 折叠条 -->
+    <!-- Collapsed Bar -->
     <div class="flex h-9 items-center gap-2 px-4 text-xs">
       <button class="flex items-center gap-1.5 rounded px-1.5 py-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
         @click="onToggle">
@@ -41,33 +42,33 @@ watch(
           viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
-        日志
+        {{ t('logDrawer.title') }}
       </button>
       <span class="text-zinc-700">|</span>
       <div class="min-w-0 flex-1 truncate font-mono text-[11px]"
         :class="levelClass[events.lastLog?.level] || 'text-zinc-500'">
-        <span v-if="events.lastLog" class="text-zinc-600">{{ fmtTime(events.lastLog.ts) }} </span>{{ events.lastLog?.message ?? '暂无日志' }}
+        <span v-if="events.lastLog" class="text-zinc-600">{{ fmtTime(events.lastLog.ts) }} </span>{{ events.lastLog ? tLogMessage(events.lastLog.message) : t('logDrawer.empty') }}
       </div>
       <template v-if="events.logExpanded">
         <button class="rounded px-2 py-1 hover:bg-zinc-800 hover:text-zinc-200"
           :class="events.logPaused ? 'text-amber-400' : 'text-zinc-400'"
           @click="events.logPaused = !events.logPaused">
-          {{ events.logPaused ? '继续滚动' : '暂停滚动' }}
+          {{ events.logPaused ? t('logDrawer.resumeScroll') : t('logDrawer.pauseScroll') }}
         </button>
         <button class="rounded px-2 py-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-          @click="events.logs = []">清空</button>
+          @click="events.logs = []">{{ t('logDrawer.clear') }}</button>
       </template>
       <span class="font-mono text-[10px] text-zinc-600">{{ events.logs.length }}</span>
     </div>
-    <!-- 展开面板 -->
+    <!-- Expanded Panel -->
     <div v-if="events.logExpanded" ref="bodyRef"
-      class="h-72 overflow-y-auto border-t border-zinc-800/70 bg-black/40 px-4 py-2 font-mono text-[11px] leading-5">
-      <div v-if="!events.logs.length" class="text-zinc-600">暂无日志</div>
+      class="h-72 overflow-y-auto border-t border-zinc-800/70 bg-zinc-950/60 px-4 py-2 font-mono text-[11px] leading-5">
+      <div v-if="!events.logs.length" class="text-zinc-600">{{ t('logDrawer.empty') }}</div>
       <div v-for="(l, i) in events.logs" :key="i" class="whitespace-pre-wrap break-all">
         <span class="text-zinc-600">{{ fmtTime(l.ts) }}</span>
         <span :class="levelClass[l.level] || 'text-zinc-400'"> {{ l.level.padEnd(7) }}</span>
         <span class="text-zinc-500"> {{ l.name.replace('vidharbor.', '') }} </span>
-        <span :class="l.level === 'ERROR' || l.level === 'WARNING' ? '' : 'text-zinc-300'">{{ l.message }}</span>
+        <span :class="l.level === 'ERROR' || l.level === 'WARNING' ? '' : 'text-zinc-300'">{{ tLogMessage(l.message) }}</span>
       </div>
     </div>
   </div>

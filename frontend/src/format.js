@@ -1,7 +1,16 @@
+import { computed } from 'vue'
+import { isZh, t } from './i18n.js'
+
 export function fmtCount(n) {
   n = Number(n) || 0
-  if (n >= 1e8) return (n / 1e8).toFixed(1).replace(/\.0$/, '') + '亿'
-  if (n >= 1e4) return (n / 1e4).toFixed(1).replace(/\.0$/, '') + '万'
+  if (isZh.value) {
+    if (n >= 1e8) return (n / 1e8).toFixed(1).replace(/\.0$/, '') + '亿'
+    if (n >= 1e4) return (n / 1e4).toFixed(1).replace(/\.0$/, '') + '万'
+    return String(n)
+  }
+  if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, '') + 'B'
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M'
+  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K'
   return String(n)
 }
 
@@ -31,14 +40,14 @@ export function fmtDate(yyyymmdd) {
 
 export function fmtTime(ts) {
   const d = new Date(Number(ts) * 1000)
-  return d.toLocaleTimeString('zh-CN', { hour12: false })
+  return d.toLocaleTimeString(isZh.value ? 'zh-CN' : 'en-US', { hour12: false })
 }
 
 export function fmtDateTime(iso) {
   if (!iso) return '—'
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString('zh-CN', { hour12: false })
+  return d.toLocaleString(isZh.value ? 'zh-CN' : 'en-US', { hour12: false })
 }
 
 export const PLATFORMS = {
@@ -49,12 +58,18 @@ export const PLATFORMS = {
   other: { label: '其他', color: '#a1a1aa' },
 }
 
-// 支持下载与榜单的平台（顺序即各页面平台标签的顺序）
-export const PLATFORM_OPTIONS = ['bilibili', 'youtube', 'tiktok', 'douyin']
-  .map((id) => ({ id, label: PLATFORMS[id].label }))
+export const PLATFORM_IDS = ['bilibili', 'youtube', 'tiktok', 'douyin']
+
+export const PLATFORM_OPTIONS = PLATFORM_IDS.map((id) => ({
+  id,
+  get label() {
+    return platformLabel(id)
+  },
+}))
 
 export function platformLabel(p) {
-  return PLATFORMS[p]?.label ?? p
+  if (p in PLATFORMS) return t(`platforms.${p}`)
+  return p
 }
 
 export function platformColor(p) {

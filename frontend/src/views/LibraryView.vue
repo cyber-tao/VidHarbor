@@ -1,9 +1,10 @@
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { NPagination, useMessage } from 'naive-ui'
 import { useRoute } from 'vue-router'
 import { api } from '../api.js'
-import { PLATFORMS, PLATFORM_OPTIONS, fmtCount } from '../format.js'
+import { PLATFORM_OPTIONS, fmtCount, platformLabel } from '../format.js'
+import { t } from '../i18n.js'
 import VideoCard from '../components/VideoCard.vue'
 
 const route = useRoute()
@@ -16,11 +17,11 @@ const pageSize = 48
 const q = ref('')
 const platform = ref('')
 const loading = ref(false)
-const PLATFORM_FILTERS = [
-  { id: '', label: '全部' },
+const platformFilters = computed(() => [
+  { id: '', label: t('platforms.all') },
   ...PLATFORM_OPTIONS,
-  { id: 'other', label: PLATFORMS.other.label },
-]
+  { id: 'other', label: platformLabel('other') },
+])
 
 function parseTags(raw) {
   return typeof raw === 'string' && raw.trim()
@@ -28,8 +29,6 @@ function parseTags(raw) {
     : []
 }
 
-// 标签聚合筛选（多选 = AND）。详情页点标签带 ?tag= 进来：创建时就取好，
-// 挂载后再赋值会触发下面的 watcher，与 onMounted 的加载重复
 const allTags = ref([])
 const activeTags = ref(parseTags(route.query.tag))
 
@@ -57,10 +56,9 @@ async function loadTags() {
   try {
     const res = await api.tags(platform.value ? { platform: platform.value } : {})
     allTags.value = res.tags
-  } catch { /* 静默 */ }
+  } catch { /* silent */ }
 }
 
-// 筛选条件变化回到第 1 页：已在第 1 页就直接加载，否则只改页码、由 page 的 watcher 加载
 function reload() {
   if (page.value === 1) load()
   else page.value = 1
@@ -90,14 +88,14 @@ function toggleTag(name) {
 <template>
   <div class="mx-auto max-w-6xl space-y-4 p-6">
     <div class="flex flex-wrap items-center gap-3">
-      <h1 class="text-xl font-semibold">视频库</h1>
-      <span class="text-xs text-zinc-500">{{ fmtCount(total) }} 个视频</span>
-      <input v-model="q" placeholder="搜索标题 / 作者 / 简介…"
+      <h1 class="text-xl font-semibold">{{ t('library.title') }}</h1>
+      <span class="text-xs text-zinc-500">{{ t('library.videoCount', { n: fmtCount(total) }) }}</span>
+      <input v-model="q" :placeholder="t('library.searchPlaceholder')"
         class="ml-auto w-64 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
     </div>
 
     <div class="flex flex-wrap gap-2">
-      <button v-for="p in PLATFORM_FILTERS" :key="p.id" @click="platform = p.id"
+      <button v-for="p in platformFilters" :key="p.id" @click="platform = p.id"
         class="rounded-full border px-3 py-1 text-xs transition-colors"
         :class="platform === p.id
           ? 'border-indigo-500 bg-indigo-500/15 text-indigo-300'
@@ -106,21 +104,21 @@ function toggleTag(name) {
       </button>
     </div>
 
-    <!-- 标签聚合筛选 -->
+    <!-- Tag Aggregation Filter -->
     <div v-if="allTags.length" class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
       <div class="flex items-center gap-2">
-        <span class="text-[11px] text-zinc-500">标签筛选</span>
-        <span class="text-[10px] text-zinc-600">（多选为同时满足）</span>
+        <span class="text-[11px] text-zinc-500">{{ t('library.tagFilter') }}</span>
+        <span class="text-[10px] text-zinc-600">{{ t('library.tagAndHint') }}</span>
         <button v-if="activeTags.length" @click="activeTags = []"
-          class="ml-auto text-[11px] text-zinc-500 hover:text-red-300">清除 × {{ activeTags.length }}</button>
+          class="ml-auto text-[11px] text-zinc-500 hover:text-red-300">{{ t('library.clearTags', { n: activeTags.length }) }}</button>
       </div>
       <div class="mt-2 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
-        <button v-for="t in allTags" :key="t.name" @click="toggleTag(t.name)"
+        <button v-for="tagItem in allTags" :key="tagItem.name" @click="toggleTag(tagItem.name)"
           class="rounded-full border px-2.5 py-0.5 text-[11px] transition-colors"
-          :class="activeTags.includes(t.name)
+          :class="activeTags.includes(tagItem.name)
             ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300'
             : 'border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'">
-          #{{ t.name }}<span class="ml-1 text-[10px] text-zinc-500">{{ t.count }}</span>
+          #{{ tagItem.name }}<span class="ml-1 text-[10px] text-zinc-500">{{ tagItem.count }}</span>
         </button>
       </div>
     </div>
@@ -130,8 +128,8 @@ function toggleTag(name) {
     </div>
     <div v-else-if="!items.length" class="flex flex-col items-center gap-2 py-20 text-zinc-600">
       <span class="text-3xl">📚</span>
-      <span class="text-sm">{{ activeTags.length ? '当前筛选没有匹配视频' : '库还是空的' }}</span>
-      <router-link to="/charts" class="mt-1 text-xs text-indigo-400 hover:text-indigo-300">去热门榜单挑几个视频 →</router-link>
+      <span class="text-sm">{{ activeTags.length ? t('library.emptyFiltered') : t('library.emptyLibrary') }}</span>
+      <router-link to="/charts" class="mt-1 text-xs text-indigo-400 hover:text-indigo-300">{{ t('library.goCharts') }}</router-link>
     </div>
     <template v-else>
       <div class="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">

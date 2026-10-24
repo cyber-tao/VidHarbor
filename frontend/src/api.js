@@ -1,4 +1,5 @@
 import { reactive } from 'vue'
+import { isZh } from './i18n.js'
 
 // 可选访问令牌（服务端设置 VIDHARBOR_TOKEN）：浏览器用令牌换取 HttpOnly 会话 Cookie，
 // 之后 fetch / SSE / <video> 等同源请求自动携带；任何请求收到 401 时界面弹出令牌输入
@@ -63,7 +64,7 @@ export const api = {
     return fetch(`/api/auth/cookies/${platform}/upload`, { method: 'POST', body: form })
       .then(async (res) => {
         if (res.status === 401) access.denied = true
-        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '上传失败')
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || (isZh.value ? '上传失败' : 'Upload failed'))
         return res.json()
       })
   },

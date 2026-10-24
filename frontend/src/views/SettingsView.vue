@@ -1,19 +1,16 @@
 <script setup>
-// 设置页：下载默认/编码/登录管理(扫码·导入·上传)/兜底引擎/存储路径
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import { api } from '../api.js'
-import { PLATFORM_OPTIONS } from '../format.js'
+import { PLATFORM_OPTIONS, platformLabel } from '../format.js'
+import { locale, setLocale, setTheme, t, theme } from '../i18n.js'
 
 const message = useMessage()
 const meta = ref(null)
 const saving = ref(false)
 const dirty = ref(false)
-// 新输入的 API Key 显示开关（默认隐藏，防止旁人窥屏）
 const showKeys = reactive({ evil0ctal: false, yt: false })
-// API Key 只写不读：服务端只返回是否已设置；输入新值才提交，「清除」提交空串
 const keys = reactive({ evil0ctal: { set: false, clear: false }, yt: { set: false, clear: false } })
-// 加载时的表单快照：保存只提交改动过的字段，没动过的继续跟随 config.toml / 环境变量
 let saved = null
 
 const form = reactive({
@@ -26,10 +23,15 @@ const form = reactive({
   timezone: 'Asia/Shanghai',
 })
 
-const HEIGHTS = [
-  { v: 0, label: '最佳（不限）' }, { v: 2160, label: '2160p 4K' }, { v: 1440, label: '1440p 2K' },
-  { v: 1080, label: '1080p（推荐）' }, { v: 720, label: '720p' }, { v: 480, label: '480p' }, { v: 360, label: '360p' },
-]
+const heights = computed(() => [
+  { v: 0, label: t('optionsDialog.bestUnlimited') },
+  { v: 2160, label: '2160p 4K' },
+  { v: 1440, label: '1440p 2K' },
+  { v: 1080, label: t('settings.heightRecommended') },
+  { v: 720, label: '720p' },
+  { v: 480, label: '480p' },
+  { v: 360, label: '360p' },
+])
 
 function splitList(text) {
   return text.split(/[,，]/).map((s) => s.trim()).filter(Boolean)
@@ -66,8 +68,8 @@ function changedFields(current, original) {
 }
 
 function keyPlaceholder(k, example) {
-  if (k.clear) return '保存后清除'
-  return k.set ? '已设置（留空则保持不变）' : example
+  if (k.clear) return t('settings.keyClearOnSave')
+  return k.set ? t('settings.keyAlreadySet') : example
 }
 
 function clearKey(which) {
@@ -121,7 +123,7 @@ async function save() {
   saving.value = true
   try {
     await api.putSettings(patch)
-    message.success('设置已保存')
+    message.success(t('settings.savedMsg'))
     dirty.value = false
     load()
   } catch (e) {
@@ -134,17 +136,17 @@ async function save() {
 async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text)
-    message.success('已复制')
+    message.success(t('settings.copiedMsg'))
   } catch {
-    message.error('复制失败')
+    message.error(t('settings.copyFailed'))
   }
 }
 
-// ---- 登录管理 ----
+// ---- Login Management ----
 const cookies = ref({})
 const browsers = ref(['chrome', 'edge', 'firefox'])
 const importBusy = ref('')
-const browserSel = reactive({})   // platform -> 浏览器名（模板表达式访问不到 document，必须用状态）
+const browserSel = reactive({})
 const loginUrls = {
   bilibili: 'https://passport.bilibili.com/login',
   youtube: 'https://accounts.google.com/',
@@ -160,14 +162,14 @@ async function loadCookies() {
     for (const pid of Object.keys(res.platforms)) {
       if (!browserSel[pid]) browserSel[pid] = 'chrome'
     }
-  } catch { /* 静默 */ }
+  } catch { /* silent */ }
 }
 
 function onUpload(platform, ev) {
   const file = ev.target.files?.[0]
   if (!file) return
   api.uploadCookies(platform, file)
-    .then((r) => { message.success(`已导入 ${r.count} 条 cookies`); loadCookies() })
+    .then((r) => { message.success(t('settings.uploadedCookiesMsg', { n: r.count })); loadCookies() })
     .catch((e) => message.error(e.message))
   ev.target.value = ''
 }
@@ -176,7 +178,7 @@ async function importBrowser(platform, browser) {
   importBusy.value = platform + browser
   try {
     const r = await api.importCookies(platform, browser)
-    message.success(`从 ${browser} 导入 ${r.count} 条 cookies`)
+    message.success(t('settings.importedBrowserMsg', { b: browser, n: r.count }))
     loadCookies()
   } catch (e) {
     message.error(e.message)
@@ -188,12 +190,12 @@ async function importBrowser(platform, browser) {
 async function removeCookies(platform) {
   try {
     await api.deleteCookies(platform)
-    message.success('已清除')
+    message.success(t('settings.clearedMsg'))
     loadCookies()
   } catch (e) { message.error(e.message) }
 }
 
-// B站扫码
+// Bilibili QR
 const qr = reactive({ show: false, dataUrl: '', key: '', status: '', nickname: '' })
 let pollTimer = null
 
@@ -219,13 +221,13 @@ function poll() {
       qr.status = r.status
       if (r.status === 'success') {
         qr.nickname = r.nickname || ''
-        message.success(`B站登录成功${r.nickname ? '：' + r.nickname : ''}`)
+        message.success(`${t('settings.biliLoginSuccess')}${r.nickname ? ': ' + r.nickname : ''}`)
         loadCookies()
         setTimeout(() => { qr.show = false }, 1200)
         return
       }
       if (r.status === 'expired') return
-    } catch { /* 继续轮询 */ }
+    } catch { /* continue polling */ }
     poll()
   }, 2000)
 }
@@ -240,41 +242,78 @@ function closeQR() {
 <template>
   <div class="mx-auto max-w-4xl space-y-5 p-6">
     <div class="flex items-center gap-3">
-      <h1 class="text-xl font-semibold">设置</h1>
+      <h1 class="text-xl font-semibold">{{ t('settings.title') }}</h1>
       <button :disabled="saving || !dirty" @click="save"
         class="ml-auto rounded-lg bg-indigo-500 px-4 py-1.5 text-xs font-medium text-white hover:bg-indigo-400 disabled:opacity-40">
-        {{ saving ? '保存中…' : '保存设置' }}
+        {{ saving ? t('settings.saving') : t('settings.saveBtn') }}
       </button>
     </div>
 
-    <!-- 下载默认 -->
+    <!-- Appearance & Language -->
     <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
-      <div class="mb-3 text-sm font-medium text-zinc-200">下载默认选项</div>
+      <div class="mb-3 text-sm font-medium text-zinc-200">{{ t('settings.appearanceTitle') }}</div>
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div class="space-y-1.5">
+          <span class="block text-xs text-zinc-400">{{ t('settings.languageLabel') }}</span>
+          <div class="inline-flex gap-1 rounded-lg border border-zinc-800 bg-zinc-950 p-1 text-xs">
+            <button type="button" @click="setLocale('en')"
+              class="rounded-md px-3 py-1 font-medium transition-colors"
+              :class="locale === 'en' ? 'bg-indigo-500 text-white' : 'text-zinc-400 hover:text-zinc-200'">
+              English
+            </button>
+            <button type="button" @click="setLocale('zh')"
+              class="rounded-md px-3 py-1 font-medium transition-colors"
+              :class="locale === 'zh' ? 'bg-indigo-500 text-white' : 'text-zinc-400 hover:text-zinc-200'">
+              简体中文
+            </button>
+          </div>
+        </div>
+        <div class="space-y-1.5">
+          <span class="block text-xs text-zinc-400">{{ t('settings.themeLabel') }}</span>
+          <div class="inline-flex gap-1 rounded-lg border border-zinc-800 bg-zinc-950 p-1 text-xs">
+            <button type="button" @click="setTheme('dark')"
+              class="rounded-md px-3 py-1 font-medium transition-colors"
+              :class="theme === 'dark' ? 'bg-indigo-500 text-white' : 'text-zinc-400 hover:text-zinc-200'">
+              {{ t('settings.themeDark') }}
+            </button>
+            <button type="button" @click="setTheme('light')"
+              class="rounded-md px-3 py-1 font-medium transition-colors"
+              :class="theme === 'light' ? 'bg-indigo-500 text-white' : 'text-zinc-400 hover:text-zinc-200'">
+              {{ t('settings.themeLight') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Default Download Options -->
+    <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
+      <div class="mb-3 text-sm font-medium text-zinc-200">{{ t('settings.downloadTitle') }}</div>
       <div class="grid gap-4 sm:grid-cols-3">
         <label class="space-y-1.5">
-          <span class="text-xs text-zinc-400">最高清晰度</span>
+          <span class="text-xs text-zinc-400">{{ t('settings.maxHeight') }}</span>
           <select v-model.number="form.max_height" @change="dirty = true"
             class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 outline-none focus:border-indigo-500">
-            <option v-for="h in HEIGHTS" :key="h.v" :value="h.v">{{ h.label }}</option>
+            <option v-for="h in heights" :key="h.v" :value="h.v">{{ h.label }}</option>
           </select>
         </label>
         <label class="space-y-1.5 sm:col-span-2">
-          <span class="text-xs text-zinc-400">字幕语言（逗号分隔，支持正则）</span>
+          <span class="text-xs text-zinc-400">{{ t('settings.subLangs') }}</span>
           <input v-model="form.sub_langs" @input="dirty = true" placeholder="zh.*, en.*"
             class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 font-mono text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
         </label>
         <label class="space-y-1.5 sm:col-span-2">
-          <span class="text-xs text-zinc-400">音轨语言偏好（逗号分隔按顺序，留空=原声；多音轨视频只下载首选一条）</span>
+          <span class="text-xs text-zinc-400">{{ t('settings.audioLangs') }}</span>
           <input v-model="form.audio_langs" @input="dirty = true" placeholder="zh, ja, en"
             class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 font-mono text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
         </label>
         <label class="space-y-1.5 sm:col-span-3">
-          <span class="text-xs text-zinc-400">出口代理（http://host:port 或 socks5://host:port，留空=不用；勾选平台的下载与榜单请求走代理）</span>
+          <span class="text-xs text-zinc-400">{{ t('settings.proxyLabel') }}</span>
           <input v-model="form.proxy" @input="dirty = true" placeholder="http://host.docker.internal:7890"
             class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 font-mono text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
         </label>
         <div class="space-y-1.5 sm:col-span-3">
-          <span class="text-xs text-zinc-400">走代理的平台</span>
+          <span class="text-xs text-zinc-400">{{ t('settings.proxyPlatforms') }}</span>
           <div class="flex flex-wrap gap-4">
             <label v-for="pf in PLATFORM_OPTIONS" :key="pf.id" class="flex items-center gap-1.5 text-xs text-zinc-300">
               <input type="checkbox" :value="pf.id" v-model="form.proxyPlatforms" @change="dirty = true"
@@ -286,90 +325,88 @@ function closeQR() {
       </div>
     </div>
 
-    <!-- 并发与性能 -->
+    <!-- Concurrency & Performance -->
     <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
-      <div class="mb-3 text-sm font-medium text-zinc-200">并发与性能</div>
+      <div class="mb-3 text-sm font-medium text-zinc-200">{{ t('settings.concurrencyTitle') }}</div>
       <div class="grid gap-4 sm:grid-cols-3">
         <label class="space-y-1.5">
-          <span class="text-xs text-zinc-400">全局并发下载（各平台合计）</span>
+          <span class="text-xs text-zinc-400">{{ t('settings.globalDownloadConcurrency') }}</span>
           <select v-model.number="form.concurrency" @change="dirty = true"
             class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 outline-none focus:border-indigo-500">
-            <option v-for="n in 8" :key="n" :value="n">{{ n }} 个同时下载</option>
+            <option v-for="n in 8" :key="n" :value="n">{{ t('settings.nConcurrentDownloads', { n }) }}</option>
           </select>
         </label>
         <label class="space-y-1.5">
-          <span class="text-xs text-zinc-400">每平台并发下载</span>
+          <span class="text-xs text-zinc-400">{{ t('settings.perPlatformConcurrency') }}</span>
           <select v-model.number="form.per_platform" @change="dirty = true"
             class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 outline-none focus:border-indigo-500">
-            <option v-for="n in 8" :key="n" :value="n">{{ n }} 个同时下载</option>
+            <option v-for="n in 8" :key="n" :value="n">{{ t('settings.nConcurrentDownloads', { n }) }}</option>
           </select>
         </label>
         <label class="space-y-1.5">
-          <span class="text-xs text-zinc-400">全局并发转码</span>
+          <span class="text-xs text-zinc-400">{{ t('settings.globalTranscodeConcurrency') }}</span>
           <select v-model.number="form.transcode" @change="dirty = true"
             class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 outline-none focus:border-indigo-500">
-            <option v-for="n in 8" :key="n" :value="n">{{ n }} 个同时转码</option>
+            <option v-for="n in 8" :key="n" :value="n">{{ t('settings.nConcurrentTranscodes', { n }) }}</option>
           </select>
         </label>
       </div>
       <div class="mt-3 rounded-lg bg-zinc-950/60 px-3 py-2 text-[11px] leading-4 text-zinc-500">
-        「每平台并发」限制同一平台同时下载的任务数（建议 1–2，防止触发风控/限速）；某平台满员时其他平台的任务照常调度。
-        「全局并发转码」限制整个系统同时进行的转码数——转码非常吃 CPU/GPU，即使多个任务同时下载完，超出上限的也会排队等待（无损 remux 不占额度）。修改保存后即时生效。
+        {{ t('settings.concurrencyNote') }}
       </div>
     </div>
 
-    <!-- 编码 -->
+    <!-- Video Encoding -->
     <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
-      <div class="mb-3 text-sm font-medium text-zinc-200">视频编码</div>
+      <div class="mb-3 text-sm font-medium text-zinc-200">{{ t('settings.encodingTitle') }}</div>
       <div class="grid gap-4 sm:grid-cols-2">
         <label class="space-y-1.5">
-          <span class="text-xs text-zinc-400">入库目标编码</span>
+          <span class="text-xs text-zinc-400">{{ t('settings.targetCodec') }}</span>
           <select v-model="form.video_codec" @change="dirty = true"
             class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 outline-none focus:border-indigo-500">
-            <option value="h265">H.265/HEVC（默认，更省空间）</option>
-            <option value="h264">H.264（浏览器兼容最好）</option>
+            <option value="h265">{{ t('settings.codecH265Default') }}</option>
+            <option value="h264">{{ t('settings.codecH264Compat') }}</option>
           </select>
         </label>
         <label class="space-y-1.5">
-          <span class="text-xs text-zinc-400">H.265 转码编码器</span>
+          <span class="text-xs text-zinc-400">{{ t('settings.hevcEncoder') }}</span>
           <select v-model="form.hw_encoder" @change="dirty = true"
             class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 outline-none focus:border-indigo-500">
-            <option value="auto">auto（硬件优先，回退 libx265）</option>
+            <option value="auto">{{ t('settings.encoderAuto') }}</option>
             <option v-for="e in (meta?.encoders ?? []).filter((x) => x !== 'auto')" :key="e" :value="e">{{ e }}</option>
           </select>
         </label>
       </div>
       <div class="mt-3 rounded-lg bg-zinc-950/60 px-3 py-2 text-[11px] text-zinc-500">
-        当前检测到可用 HEVC 编码器：<span class="font-mono text-zinc-300">{{ meta?.hevc_encoder || '…' }}</span>
-        （源已是 HEVC 的视频直接封装不转码；HEVC 统一打 hvc1 标记保证 Apple 兼容；网页播放 HEVC 依赖浏览器/硬件支持，Safari 原生支持）
+        {{ t('settings.detectedEncoderPrefix') }}<span class="font-mono text-zinc-300">{{ meta?.hevc_encoder || '…' }}</span>
+        {{ t('settings.detectedEncoderNote') }}
       </div>
     </div>
 
-    <!-- 登录管理 -->
+    <!-- Login Management (Cookies) -->
     <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
-      <div class="mb-1 text-sm font-medium text-zinc-200">登录管理（cookies）</div>
+      <div class="mb-1 text-sm font-medium text-zinc-200">{{ t('settings.cookiesTitle') }}</div>
       <div class="mb-3 text-[11px] text-zinc-500">
-        B站支持扫码登录。其他平台推荐用扩展（Get cookies.txt LOCALLY）导出后上传；
-        注意：Chrome/Edge 127+ 启用了应用绑定加密，Windows 下无法直接「从浏览器导入」——需要完全退出浏览器才可读取数据库，且新版加密无法解密，此时请改用扩展上传或从 Firefox 导入。
+        {{ t('settings.cookiesNote') }}
       </div>
       <div class="grid gap-3 sm:grid-cols-2">
         <div v-for="(p, pid) in cookies" :key="pid"
           class="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
           <div class="flex items-center gap-2">
-            <span class="text-xs font-medium text-zinc-200">{{ p.name }}</span>
+            <span class="text-xs font-medium text-zinc-200">{{ platformLabel(pid) }}</span>
             <span v-if="p.exists" class="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-400">
-              ✓ 已配置{{ p.nickname ? ` · ${p.nickname}` : '' }}
+              {{ t('settings.configured') }}{{ p.nickname ? ` · ${p.nickname}` : '' }}
             </span>
-            <span v-else class="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-500">未配置</span>
+            <span v-else class="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-500">{{ t('settings.notConfigured') }}</span>
           </div>
-          <div v-if="p.exists" class="mt-1 text-[10px] text-zinc-600">更新于 {{ p.updated_at }}</div>
+          <div v-if="p.exists" class="mt-1 text-[10px] text-zinc-600">{{ t('settings.updatedAt', { t: p.updated_at }) }}</div>
           <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
             <button v-if="pid === 'bilibili'" @click="startQR"
-              class="rounded border border-indigo-500/50 bg-indigo-500/10 px-2.5 py-1 text-[11px] text-indigo-300 hover:bg-indigo-500/20">扫码登录</button>
+              class="rounded border border-indigo-500/50 bg-indigo-500/10 px-2.5 py-1 text-[11px] text-indigo-300 hover:bg-indigo-500/20">{{ t('settings.qrLoginBtn') }}</button>
             <a :href="loginUrls[pid]" target="_blank"
-              class="rounded border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300 hover:border-zinc-500">打开登录页 ↗</a>
+              class="rounded border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300 hover:border-zinc-500">{{ t('settings.openLoginPage') }}</a>
             <label class="cursor-pointer rounded border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300 hover:border-zinc-500">
-              上传 cookies.txt
+              {{ t('settings.uploadCookies') }}
               <input type="file" accept=".txt" class="hidden" @change="onUpload(pid, $event)" />
             </label>
             <select v-model="browserSel[pid]"
@@ -379,30 +416,30 @@ function closeQR() {
             <button @click="importBrowser(pid, browserSel[pid] || 'chrome')"
               :disabled="!!importBusy"
               class="rounded border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300 hover:border-emerald-500/60 hover:text-emerald-300 disabled:opacity-40">
-              {{ importBusy === pid + (browserSel[pid] || 'chrome') ? '导入中…' : '从浏览器导入' }}
+              {{ importBusy === pid + (browserSel[pid] || 'chrome') ? t('settings.importingBtn') : t('settings.importFromBrowser') }}
             </button>
             <button v-if="p.exists" @click="removeCookies(pid)"
-              class="rounded border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-500 hover:border-red-500/60 hover:text-red-300">清除</button>
+              class="rounded border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-500 hover:border-red-500/60 hover:text-red-300">{{ t('settings.clearBtn') }}</button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 抖音兜底 & YouTube API & 系统 -->
+    <!-- Evil0ctal Fallback & YouTube API & System -->
     <div class="grid gap-4 sm:grid-cols-2">
       <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
-        <div class="mb-3 text-sm font-medium text-zinc-200">抖音 / TikTok 兜底引擎（Evil0ctal v5）</div>
+        <div class="mb-3 text-sm font-medium text-zinc-200">{{ t('settings.evil0ctalTitle') }}</div>
         <label class="flex items-center gap-2 text-xs text-zinc-300">
           <input type="checkbox" v-model="form.evil0ctal_enabled" @change="dirty = true" class="accent-indigo-500" />
-          启用（yt-dlp 失败时自动切换）
+          {{ t('settings.evil0ctalEnable') }}
         </label>
         <label class="mt-3 block space-y-1.5">
-          <span class="text-xs text-zinc-400">服务地址</span>
+          <span class="text-xs text-zinc-400">{{ t('settings.serviceUrl') }}</span>
           <input v-model="form.evil0ctal_base_url" @input="dirty = true" placeholder="http://127.0.0.1:8000"
             class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 font-mono text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
         </label>
         <label class="mt-3 block space-y-1.5">
-          <span class="text-xs text-zinc-400">API Key</span>
+          <span class="text-xs text-zinc-400">{{ t('settings.apiKey') }}</span>
           <span class="relative block">
             <input v-model="form.evil0ctal_api_key" @input="dirty = true; keys.evil0ctal.clear = false"
               :placeholder="keyPlaceholder(keys.evil0ctal, 'dtk_...')"
@@ -410,26 +447,26 @@ function closeQR() {
               class="w-full rounded-lg border border-zinc-700 bg-zinc-950 py-1.5 pl-2.5 pr-12 font-mono text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
             <button type="button" @click="showKeys.evil0ctal = !showKeys.evil0ctal"
               class="absolute inset-y-0 right-0 rounded-lg px-2 text-[11px] text-zinc-500 hover:text-indigo-300">
-              {{ showKeys.evil0ctal ? '隐藏' : '显示' }}
+              {{ showKeys.evil0ctal ? t('settings.hideKey') : t('settings.showKey') }}
             </button>
           </span>
           <span class="block text-[11px] leading-4 text-zinc-500">
-            在服务控制台 /api-keys 创建，勾选 douyin:read 与 tiktok:read；部署方法见 README。
+            {{ t('settings.evil0ctalNote') }}
             <button v-if="keys.evil0ctal.set && !keys.evil0ctal.clear" type="button" @click.prevent="clearKey('evil0ctal')"
-              class="ml-1 text-zinc-500 underline hover:text-red-300">清除已保存的 Key</button>
+              class="ml-1 text-zinc-500 underline hover:text-red-300">{{ t('settings.clearSavedKey') }}</button>
           </span>
         </label>
       </div>
       <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
-        <div class="mb-1 text-sm font-medium text-zinc-200">YouTube Data API（推荐）</div>
+        <div class="mb-1 text-sm font-medium text-zinc-200">{{ t('settings.ytApiTitle') }}</div>
         <div class="mb-3 text-[11px] leading-4 text-zinc-500">
-          配置后榜单优先走官方 API：真实热门榜（含点赞数/发布时间），每日免费配额个人使用足够。
-          在 <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank"
-            class="text-indigo-400 hover:underline">Google Cloud Console</a> 启用 YouTube Data API v3 并创建 API 密钥；
-          未配置时自动使用免登录通道（InnerTube）。
+          {{ t('settings.ytApiNote1') }}
+          <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank"
+            class="text-indigo-400 hover:underline">Google Cloud Console</a>
+          {{ t('settings.ytApiNote2') }}
         </div>
         <label class="block space-y-1.5">
-          <span class="text-xs text-zinc-400">API Key</span>
+          <span class="text-xs text-zinc-400">{{ t('settings.apiKey') }}</span>
           <span class="relative block">
             <input v-model="form.yt_api_key" @input="dirty = true; keys.yt.clear = false"
               :placeholder="keyPlaceholder(keys.yt, 'AIza...')"
@@ -437,32 +474,32 @@ function closeQR() {
               class="w-full rounded-lg border border-zinc-700 bg-zinc-950 py-1.5 pl-2.5 pr-12 font-mono text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500" />
             <button type="button" @click="showKeys.yt = !showKeys.yt"
               class="absolute inset-y-0 right-0 rounded-lg px-2 text-[11px] text-zinc-500 hover:text-indigo-300">
-              {{ showKeys.yt ? '隐藏' : '显示' }}
+              {{ showKeys.yt ? t('settings.hideKey') : t('settings.showKey') }}
             </button>
           </span>
           <button v-if="keys.yt.set && !keys.yt.clear" type="button" @click.prevent="clearKey('yt')"
-            class="text-[11px] text-zinc-500 underline hover:text-red-300">清除已保存的 Key</button>
+            class="text-[11px] text-zinc-500 underline hover:text-red-300">{{ t('settings.clearSavedKey') }}</button>
         </label>
         <label class="mt-3 block space-y-1.5">
-          <span class="text-xs text-zinc-400">地区代码（影响热门榜内容，如 US / JP / TW / HK）</span>
+          <span class="text-xs text-zinc-400">{{ t('settings.regionCode') }}</span>
           <input v-model="form.yt_region" @input="dirty = true"
             class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 font-mono text-xs text-zinc-200 outline-none focus:border-indigo-500" />
         </label>
       </div>
       <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5 sm:col-span-2">
-        <div class="mb-3 text-sm font-medium text-zinc-200">存储与系统</div>
+        <div class="mb-3 text-sm font-medium text-zinc-200">{{ t('settings.storageTitle') }}</div>
         <div class="space-y-2 text-[11px]">
           <div>
-            <div class="mb-1 text-zinc-500">视频库根目录（绝对路径）</div>
+            <div class="mb-1 text-zinc-500">{{ t('settings.libraryRoot') }}</div>
             <div class="flex gap-1.5">
               <input readonly :value="meta?.library_root || ''"
                 class="min-w-0 flex-1 rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-zinc-400 outline-none" />
               <button @click="copyText(meta?.library_root || '')"
-                class="shrink-0 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-zinc-300 hover:border-indigo-500/60 hover:text-indigo-300">复制</button>
+                class="shrink-0 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-zinc-300 hover:border-indigo-500/60 hover:text-indigo-300">{{ t('settings.copyBtn') }}</button>
             </div>
           </div>
           <label class="block space-y-1">
-            <span class="text-zinc-500">定时任务时区</span>
+            <span class="text-zinc-500">{{ t('settings.scheduleTimezone') }}</span>
             <input v-model="form.timezone" @input="dirty = true"
               class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 font-mono text-xs text-zinc-200 outline-none focus:border-indigo-500" />
           </label>
@@ -470,32 +507,37 @@ function closeQR() {
       </div>
     </div>
 
-    <!-- 底部保存 -->
+    <!-- Bottom Save -->
     <div class="flex items-center justify-end gap-3">
-      <span v-if="dirty" class="text-[11px] text-zinc-500">有未保存的修改</span>
+      <span v-if="dirty" class="text-[11px] text-zinc-500">{{ t('settings.unsavedChanges') }}</span>
       <button :disabled="saving || !dirty" @click="save"
         class="rounded-lg bg-indigo-500 px-4 py-1.5 text-xs font-medium text-white hover:bg-indigo-400 disabled:opacity-40">
-        {{ saving ? '保存中…' : '保存设置' }}
+        {{ saving ? t('settings.saving') : t('settings.saveBtn') }}
       </button>
     </div>
 
-    <!-- B站扫码弹窗 -->
+    <!-- Bilibili QR Modal -->
     <div v-if="qr.show" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6" @click.self="closeQR">
       <div class="w-full max-w-xs overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 p-5 text-center">
-        <div class="mb-1 text-sm font-medium">B站扫码登录</div>
-        <div class="mb-3 text-[11px] text-zinc-500">用 B站 App 扫码确认登录</div>
-        <img v-if="qr.dataUrl" :src="qr.dataUrl" class="mx-auto h-56 w-56 rounded-lg bg-white p-2" alt="登录二维码" />
+        <div class="mb-1 text-sm font-medium">{{ t('settings.qrModalTitle') }}</div>
+        <div class="mb-3 text-[11px] text-zinc-500">{{ t('settings.qrModalSub') }}</div>
+        <img v-if="qr.dataUrl" :src="qr.dataUrl" class="mx-auto h-56 w-56 rounded-lg bg-white p-2" :alt="t('settings.qrAlt')" />
         <div class="mt-3 text-xs" :class="{
           'text-zinc-400': qr.status === 'waiting',
           'text-indigo-300': qr.status === 'scanned',
           'text-emerald-400': qr.status === 'success',
           'text-red-400': qr.status === 'expired',
         }">
-          {{ { waiting: '等待扫码…', scanned: '已扫描，请在手机上确认', success: `登录成功${qr.nickname ? '：' + qr.nickname : ''}`, expired: '二维码已过期' }[qr.status] || qr.status }}
+          {{ {
+            waiting: t('settings.qrWaiting'),
+            scanned: t('settings.qrScanned'),
+            success: `${t('settings.qrSuccess')}${qr.nickname ? ': ' + qr.nickname : ''}`,
+            expired: t('settings.qrExpired'),
+          }[qr.status] || qr.status }}
         </div>
         <div class="mt-3 flex justify-center gap-2">
-          <button v-if="qr.status === 'expired'" @click="startQR" class="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-zinc-500">重新生成</button>
-          <button @click="closeQR" class="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-zinc-500">关闭</button>
+          <button v-if="qr.status === 'expired'" @click="startQR" class="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-zinc-500">{{ t('settings.qrRegenerate') }}</button>
+          <button @click="closeQR" class="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-zinc-500">{{ t('settings.qrClose') }}</button>
         </div>
       </div>
     </div>

@@ -9,16 +9,16 @@ const thumbUrl = computed(() => `/api/videos/${props.video.id}/thumbnail`)
 </script>
 
 <template>
-  <div class="group cursor-pointer overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60 transition-all hover:border-zinc-600 hover:shadow-lg hover:shadow-black/40"
+  <div class="group cursor-pointer overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60 transition-all hover:border-zinc-600 hover:shadow-lg hover:shadow-black/20"
     @click="router.push(`/video/${video.id}`)">
-    <div class="relative aspect-video overflow-hidden bg-zinc-800">
+    <div class="vh-media-frame relative aspect-video overflow-hidden bg-zinc-800">
       <img :src="thumbUrl" :alt="video.title" referrerpolicy="no-referrer" loading="lazy"
         class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
-      <span class="absolute bottom-1.5 right-1.5 rounded bg-black/75 px-1.5 py-0.5 font-mono text-[11px] text-zinc-200">
+      <span class="vh-media-badge absolute bottom-1.5 right-1.5 rounded bg-black/75 px-1.5 py-0.5 font-mono text-[11px] text-white">
         {{ fmtDuration(video.duration) }}
       </span>
       <span v-if="video.subtitles_count > 0"
-        class="absolute left-1.5 top-1.5 rounded bg-black/75 px-1.5 py-0.5 text-[10px] text-indigo-300">
+        class="vh-media-badge absolute left-1.5 top-1.5 rounded bg-black/75 px-1.5 py-0.5 text-[10px] text-indigo-200">
         CC {{ video.subtitles_count }}
       </span>
     </div>

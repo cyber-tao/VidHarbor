@@ -1,11 +1,39 @@
 <!doctype html>
-<html lang="zh-CN" class="dark">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚓</text></svg>" />
-    <title>VidHarbor「影坞」· 本地视频库</title>
-    <style>html { background: #09090b; color-scheme: dark;}</style>
+    <title>VidHarbor · Self-Hosted Video Library</title>
+    <script>
+      (function () {
+        var theme = 'dark';
+        var locale = 'en';
+        try {
+          var url = new URL(location.href);
+          var qTheme = url.searchParams.get('theme');
+          var qLang = url.searchParams.get('lang');
+          if (qTheme === 'light' || qTheme === 'dark') {
+            localStorage.setItem('vidharbor-theme', qTheme);
+          }
+          if (qLang === 'zh' || qLang === 'zh-CN' || qLang === 'en') {
+            localStorage.setItem('vidharbor-locale', qLang.startsWith('zh') ? 'zh' : 'en');
+          }
+          var savedTheme = localStorage.getItem('vidharbor-theme');
+          if (savedTheme === 'light' || savedTheme === 'dark') theme = savedTheme;
+          var savedLocale = localStorage.getItem('vidharbor-locale');
+          if (savedLocale === 'zh' || savedLocale === 'en') locale = savedLocale;
+        } catch (e) {}
+        var root = document.documentElement;
+        root.classList.remove('dark', 'light');
+        root.classList.add(theme);
+        root.style.colorScheme = theme;
+        root.lang = locale === 'zh' ? 'zh-CN' : 'en';
+        document.title = locale === 'zh'
+          ? 'VidHarbor「影坞」· 本地视频库'
+          : 'VidHarbor · Self-Hosted Video Library';
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>
