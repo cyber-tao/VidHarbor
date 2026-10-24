@@ -2,7 +2,7 @@
 
 VidHarbor 在 `data/cookies/{platform}.txt` 下为每个平台维护独立的 Netscape 格式 cookies 文件（`bilibili.txt`、`youtube.txt`、`tiktok.txt`、`douyin.txt`）。平台专属 cookies 优先于 `config.toml` 中的全局 `download.cookies_file`，且在上传或导入时严格按平台域名白名单（`PLATFORM_DOMAINS`）过滤，确保不会跨站点外发登录态。
 
-![VidHarbor 设置页浅色主题实拍](/screenshots/settings-en-light.png)
+![VidHarbor 设置页中文浅色主题实拍](/screenshots/settings-zh-light.png)
 
 ## 1. 各平台为什么需要配置 Cookies {#why-cookies}
 

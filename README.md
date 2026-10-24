@@ -25,6 +25,8 @@ management (Bilibili QR), a settings center, and live streaming logs.
 
 Runs on **Windows / Linux / macOS** — bare metal or **Docker** (x86-64 / ARM64).
 
+![VidHarbor Web Console Dashboard (English Dark Theme)](website/docs/public/screenshots/dashboard-en-dark.png)
+
 | Module | Role |
 |---|---|
 | **Browser** | Vue 3 + Tailwind + Naive UI + ECharts. Dashboard, charts (category × period, batch download), tasks, library (tag filtering), schedules, settings, and logs. Talks to the backend over REST + SSE |
@@ -73,6 +75,53 @@ Runs on **Windows / Linux / macOS** — bare metal or **Docker** (x86-64 / ARM64
   (e.g. `zh, ja, en`)
 - **Deduplication** — resolvable video IDs are skipped *before* download (no wasted bandwidth);
   a platform+ID unique constraint backstops the library
+
+## 🖼️ Web Console Preview (Bilingual & Dual-Theme)
+
+The web console supports **English** and **Simplified Chinese (`简体中文`)** alongside **Dark** and **Light** themes (switchable from the bottom-left sidebar toolbar or the Settings page):
+
+| Trending Charts (`category × period`) | Video Library & Tag Aggregation |
+|---|---|
+| ![Trending Charts](website/docs/public/screenshots/charts-en-dark.png) | ![Video Library](website/docs/public/screenshots/library-en-dark.png) |
+| **Scheduled Jobs (APScheduler)** | **Settings Center (Light Theme)** |
+| ![Scheduled Jobs](website/docs/public/screenshots/schedules-en-dark.png) | ![Settings Light Theme](website/docs/public/screenshots/settings-en-light.png) |
+
+## ⚡ Workflow & Post-Processing Pipeline
+
+### 1. From Raw Mobile Share Copy to Normalized Archive
+
+Paste raw app share text or multi-platform URLs directly into **Quick Download** or **Download Tasks**:
+
+```text
+# Input: raw mobile share text + short links
+7.43 复制打开抖音，看看【极客工坊的作品】万兆家庭影音库理线实录 https://v.douyin.com/iY8xYz1/
+https://youtu.be/dQw4w9WgXcQ
+https://www.bilibili.com/video/BV1GJ411x7h7
+```
+
+VidHarbor extracts the URLs, expands `v.douyin.com` / `vm.tiktok.com` / `b23.tv` short links, checks canonical IDs against the active queue and SQLite (`videos`), and writes normalized files with sidecar subtitles:
+
+```text
+library/videos/
+├── bilibili/索尼音乐中国/
+│   ├── 20191231 - 【官方 MV】Never Gonna Give You Up - Rick Astley [BV1GJ411x7h7].mp4
+│   ├── 20191231 - 【官方 MV】Never Gonna Give You Up - Rick Astley [BV1GJ411x7h7].jpg
+│   └── 20191231 - 【官方 MV】Never Gonna Give You Up - Rick Astley [BV1GJ411x7h7].en-US.srt
+└── douyin/GeekWorkshop/
+    ├── 20261018 - 10GbE Home Media Library Cabling & Silent Cooling Walkthrough [742700192831].mp4
+    └── 20261018 - 10GbE Home Media Library Cabling & Silent Cooling Walkthrough [742700192831].jpg
+```
+
+### 2. Lossless-First `ensure_mp4` Normalization (Measured Benchmark)
+
+Network downloads (`download.concurrency` / `download.per_platform_concurrency`) and FFmpeg transcodes (`library.transcode_concurrency`) use separate concurrency semaphores. When targeting `h265` (default), streams already encoded in HEVC+AAC bypass the transcode semaphore and remux losslessly:
+
+| Post-Processing Path (5.0s 1080p@30fps + AAC → MP4 `+faststart`, FFmpeg 9.0) | Action | Median Time (5 runs) | Speedup / Notes |
+|---|---|---|---|
+| **HEVC Source → Lossless Remux** (`-c:v copy -tag:v hvc1 -c:a copy`) | `remux` | **`525.8 ms`** (±4.2 ms) | **3.9× faster** (74.1% time reduction), zero quality loss, takes no transcode slot |
+| **H.264 Source → Software Transcode** (`libx265 -crf 24 -preset medium -tag:v hvc1`) | `transcode` | `2033.2 ms` (±1.3 ms) | Used only when source is not HEVC and no hardware encoder (`hevc_nvenc` / `hevc_qsv` / `hevc_amf` / `hevc_videotoolbox`) is available |
+
+*(Raw benchmark data and reproduction script: [`website/docs/public/evidence/postprocess-benchmark.json`](website/docs/public/evidence/postprocess-benchmark.json).)*
 
 ## 🚀 Quick Start
 

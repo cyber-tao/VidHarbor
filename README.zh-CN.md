@@ -23,6 +23,8 @@ VidHarbor（影坞）下载 **YouTube / 哔哩哔哩 / TikTok / 抖音** 视频�
 （B站扫码）、设置中心、实时日志的 Web 控制台。支持 **Windows / Linux / macOS**，
 可裸机运行，也可 **Docker** 部署（x86-64 / ARM64）。
 
+![VidHarbor 影坞 Web 控制台仪表盘（中文深色主题）](website/docs/public/screenshots/dashboard-zh-dark.png)
+
 | 模块 | 说明 |
 |---|---|
 | **浏览器** | Vue 3 + Tailwind + Naive UI + ECharts。仪表盘、热门榜单（分类 × 时间段，批量下载）、任务、视频库（标签筛选）、定时任务、设置（登录管理 / 扫码）、日志抽屉。经 REST + SSE 连接后端 |
@@ -48,6 +50,53 @@ VidHarbor（影坞）下载 **YouTube / 哔哩哔哩 / TikTok / 抖音** 视频�
 - **字幕入库**：手动+自动字幕（默认 `zh.* en.*`，可改），SRT 全文存数据库，前端可转 VTT 挂载到 `<track>`
 - **音轨语言**：多音轨视频按语言偏好只下载一条首选音轨（如 `zh, ja, en`）
 - **去重**：URL 可解析出视频 ID 时下载前直接跳过（不浪费带宽）；入库按平台+ID 唯一约束兜底
+
+## 🖼️ Web 控制台界面预览（中英双语 & 深浅双色主题）
+
+Web 控制台原生支持 **English / 简体中文** 双语与 **深色（Dark）/ 浅色（Light）** 主题（可在左侧边栏底部工具栏或「设置」页面一键切换）：
+
+| 热门榜单（分类 × 时间周期） | 视频库与多标签聚合筛选 |
+|---|---|
+| ![热门榜单](website/docs/public/screenshots/charts-zh-dark.png) | ![视频库](website/docs/public/screenshots/library-zh-dark.png) |
+| **定时任务（APScheduler 多榜单组合）** | **设置中心（中文浅色主题）** |
+| ![定时任务](website/docs/public/screenshots/schedules-zh-dark.png) | ![设置中心浅色主题](website/docs/public/screenshots/settings-zh-light.png) |
+
+## ⚡ 核心工作流与后处理实测
+
+### 1. 从杂乱 App 分享口令到规范化本地视频库
+
+直接将手机 App 分享口令或多平台视频链接粘贴到 **快速下载** 或 **下载任务** 输入框：
+
+```text
+# 输入：App 分享文案（混杂推广词与短链）+ 多平台链接
+7.43 复制打开抖音，看看【极客工坊的作品】万兆家庭影音库理线实录 https://v.douyin.com/iY8xYz1/
+https://youtu.be/dQw4w9WgXcQ
+https://www.bilibili.com/video/BV1GJ411x7h7
+```
+
+VidHarbor 自动提取链接、展开 `v.douyin.com` / `vm.tiktok.com` / `b23.tv` 短链、在调用 `yt-dlp` 前比对活动队列与 SQLite `videos` 表去重，并输出规范命名的视频、封面与同名 SRT 字幕：
+
+```text
+library/videos/
+├── bilibili/索尼音乐中国/
+│   ├── 20191231 - 【官方 MV】Never Gonna Give You Up - Rick Astley [BV1GJ411x7h7].mp4
+│   ├── 20191231 - 【官方 MV】Never Gonna Give You Up - Rick Astley [BV1GJ411x7h7].jpg
+│   └── 20191231 - 【官方 MV】Never Gonna Give You Up - Rick Astley [BV1GJ411x7h7].en-US.srt
+└── douyin/GeekWorkshop/
+    ├── 20261018 - 10GbE Home Media Library Cabling & Silent Cooling Walkthrough [742700192831].mp4
+    └── 20261018 - 10GbE Home Media Library Cabling & Silent Cooling Walkthrough [742700192831].jpg
+```
+
+### 2. 无损优先 `ensure_mp4` 封装管线（实测对比）
+
+网络下载并发（`download.concurrency` / `download.per_platform_concurrency`）与 FFmpeg 转码并发（`library.transcode_concurrency`）通过独立信号量隔离。当目标编码为 `h265`（默认）且源流已是 HEVC+AAC 时，直接执行无损封装而不占用转码槽位：
+
+| 后处理路径（5.0 秒 1080p@30fps + AAC → MP4 `+faststart`, FFmpeg 9.0） | 动作 | 5 次采样中位耗时 | 速度对比与说明 |
+|---|---|---|---|
+| **HEVC 源流 → 无损 Remux** (`-c:v copy -tag:v hvc1 -c:a copy`) | `remux` | **`525.8 ms`** (±4.2 ms) | **快 3.9 倍**（耗时减少 74.1%），零画质损耗，不占用全局转码并发槽位 |
+| **H.264 源流 → 软件转码** (`libx265 -crf 24 -preset medium -tag:v hvc1`) | `transcode` | `2033.2 ms` (±1.3 ms) | 仅当源流非 HEVC 且未探测到可用硬件编码器（`hevc_nvenc` / `hevc_qsv` / `hevc_amf` / `hevc_videotoolbox`）时回退使用 |
+
+*（原始测试数据与复现命令见 [`website/docs/public/evidence/postprocess-benchmark.json`](website/docs/public/evidence/postprocess-benchmark.json)。）*
 
 ## 🚀 快速开始
 

@@ -2,7 +2,7 @@
 
 VidHarbor 将四平台热门榜单浏览、多选批量下载与 APScheduler 定时自动追更融为一体。
 
-![VidHarbor 热门榜单英文深色模式实拍](/screenshots/charts-en-dark.png)
+![VidHarbor 热门榜单中文深色模式实拍](/screenshots/charts-zh-dark.png)
 
 ## 1. 四平台榜单数据源与时间周期 {#chart-sources}
 
@@ -31,7 +31,7 @@ VidHarbor 将四平台热门榜单浏览、多选批量下载与 APScheduler 定
 
 ## 3. 定时任务（`Schedules`）自动追更 {#schedules}
 
-![VidHarbor 定时任务页面实拍](/screenshots/schedules-en-dark.png)
+![VidHarbor 定时任务页面中文深色实拍](/screenshots/schedules-zh-dark.png)
 
 一个定时任务可以组合 **多个不同平台的榜单选择**（`平台 × 分类 × 周期 × TopN`），支持四种触发模式：
 
