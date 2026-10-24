@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-24",
+  "version": "0.3.0",
+  "commit": "435b7ca",
+  "workload": "5.0s 1920x1080 @ 30fps testsrc2 video + 48kHz AAC audio -> target H.265/MP4 (+faststart, hvc1)",
+  "warmup_runs": 1,
+  "measured_runs": 5,
+  "remux_hevc_to_mp4_ms": {
+    "samples": [
+      524.95,
+      532.07,
+      533.43,
+      525.75,
+      524.94
+    ],
+    "median_ms": 525.75,
+    "mean_ms": 528.23,
+    "stdev_ms": 4.17,
+    "action": "remux",
+    "codec_name": "hevc",
+    "codec_tag_string": "hvc1",
+    "output_size_bytes": 4848201
+  },
+  "transcode_h264_to_hevc_libx265_ms": {
+    "samples": [
+      2032.4,
+      2033.19,
+      2031.82,
+      2035.15,
+      2033.68
+    ],
+    "median_ms": 2033.19,
+    "mean_ms": 2033.25,
+    "stdev_ms": 1.28,
+    "action": "transcode",
+    "encoder": "libx265 (CRF 24, preset medium)",
+    "codec_name": "hevc",
+    "codec_tag_string": "hvc1",
+    "output_size_bytes": 4659806
+  },
+  "speedup_ratio": 3.9,
+  "time_reduction_pct": 74.1
+}

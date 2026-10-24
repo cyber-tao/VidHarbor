@@ -11,7 +11,7 @@
 [![Docker](https://img.shields.io/badge/deploy-Docker-2496ED?logo=docker&logoColor=white)]()
 [![License](https://img.shields.io/badge/license-TBD-gray)]()
 
-**English** · [简体中文](README.zh-CN.md)
+**English** · [简体中文](README.zh-CN.md) · [Documentation Website](https://cyber-tao.github.io/VidHarbor/)
 
 </div>
 
@@ -54,7 +54,7 @@ Runs on **Windows / Linux / macOS** — bare metal or **Docker** (x86-64 / ARM64
   selections (platform × category × period × TopN); items already in library are skipped
   automatically; run-now, enable/disable, last-run stats. The Douyin hot-search list holds
   topics rather than videos, so schedule a Douyin keyword search instead
-- **Settings** — download defaults (quality / subtitle languages / audio-track languages),
+- **Settings** — interface language (`English` / `简体中文`) & color theme (`Dark` / `Light`, also switchable in the sidebar), download defaults (quality / subtitle languages / audio-track languages),
   encoding (H.265/H.264, hardware-encoder detection display), **login management** (Bilibili
   QR code; browser import / cookies.txt upload per platform), Douyin fallback engine, storage
   path, timezone
@@ -191,7 +191,24 @@ cd backend && uv run uvicorn app.main:app --reload --timeout-graceful-shutdown 5
 
 # frontend (Vite dev server, /api proxied automatically)
 cd frontend && npm run dev
+
+# documentation website (VitePress, English at /VidHarbor/ and Chinese at /VidHarbor/zh/)
+cd website && npm ci && npm run dev
 ```
+
+### Documentation Website & GitHub Pages
+
+The project website lives in `website/` (VitePress 1.6.4) and builds static output to `website/dist` for `https://cyber-tao.github.io/VidHarbor/` via `.github/workflows/deploy-pages.yml` on pushes to `master`:
+
+```bash
+cd website && npm ci && npm run build && npm run preview
+```
+
+One-time GitHub Pages setup:
+
+1. In the repository on GitHub, open **Settings → Pages → Build and deployment → Source** and select **GitHub Actions**.
+2. Confirm GitHub Actions and the official `actions/*` steps are allowed by repository/organization policy, and that the `github-pages` environment permits the `master` branch.
+3. Push to `master` (or trigger **Run workflow** on `.github/workflows/deploy-pages.yml`). If a custom domain is used, configure it under repository Pages settings and DNS.
 
 Run tests — the pytest suite covers naming sanitization, subtitle parsing, chart providers,
 format selectors, option resolution, encoder detection, cookie import, access control,
@@ -338,7 +355,9 @@ vidharbor/
 │   │   └── …               # config, db, models, events, logging, naming
 │   ├── tests/              # pytest suite
 │   └── run.py              # cross-platform entry point
-├── frontend/               # Vue 3 + Vite + Tailwind + Naive UI + ECharts + Pinia
+├── frontend/               # Vue 3 + Vite + Tailwind + Naive UI + ECharts + Pinia (EN/ZH, Dark/Light)
+├── website/                # VitePress bilingual documentation website (builds to website/dist)
+├── .github/workflows/      # deploy-pages.yml (GitHub Pages CI/CD on master)
 ├── config.example.toml     # copy to config.toml (git-ignored)
 ├── Dockerfile              # multi-stage image: frontend build + FastAPI/ffmpeg runtime
 ├── docker-compose.yml      # Docker deployment (bind-mounts ./data and ./library)

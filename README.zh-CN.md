@@ -11,7 +11,7 @@
 [![Docker](https://img.shields.io/badge/deploy-Docker-2496ED?logo=docker&logoColor=white)]()
 [![License](https://img.shields.io/badge/license-TBD-gray)]()
 
-[English](README.md) · **简体中文**
+[English](README.md) · **简体中文** · [项目文档网站](https://cyber-tao.github.io/VidHarbor/zh/)
 
 </div>
 
@@ -41,7 +41,7 @@ VidHarbor（影坞）下载 **YouTube / 哔哩哔哩 / TikTok / 抖音** 视频�
 - **任务页**：实时进度条（下载速度/剩余时间/阶段：下载→合并→转码→完成）、失败原因、选项徽标、取消/重试/删除；重复 URL 自动秒完成（已在库）
 - **视频库**：缩略图网格、平台筛选、全文搜索、**标签聚合筛选**（多选=同时满足，来自视频标签自动聚合）；详情页内置播放器 + **字幕轨选择**、**存储绝对路径一键复制**、技术信息、字幕查看、删除；标签可点击跳转筛选
 - **定时任务**：每天/每周/间隔/Cron 触发；一个任务可组合多个榜单选择（平台×分类×周期×TopN）；到点自动抓取入库，**库中已有的视频自动跳过**；支持立即运行、启停、上次结果统计。抖音热搜榜的条目是话题而不是视频，不能加入定时任务，请改用抖音关键词搜索
-- **设置页**：下载默认（清晰度/字幕语言/音轨语言）、编码（H.265/H.264、硬件编码器探测展示）、**登录管理**（B站扫码登录；各平台浏览器导入/上传 cookies.txt）、抖音兜底、存储路径展示复制、时区
+- **设置页**：界面语言（`English` / `简体中文`）与深浅主题（`深色` / `浅色`，侧边栏底部亦可一键切换）、下载默认（清晰度/字幕语言/音轨语言）、编码（H.265/H.264、硬件编码器探测展示）、**登录管理**（B站扫码登录；各平台浏览器导入/上传 cookies.txt）、抖音兜底、存储路径展示复制、时区
 - **日志抽屉**：底部全局可折叠终端，实时滚动全部下载/转码/榜单/定时任务日志，支持暂停滚动与清空
 - **统一 MP4**：目标编码 H.265（默认）时优先抓取源站 HEVC 流直接封装（免转码、`hvc1` tag），非 HEVC 源按探测到的硬件编码器（NVENC/QSV/AMF/VideoToolbox）转码，无硬件回退 `libx265 CRF24`；也可切回 H.264（remux 优先，转码 `libx264 CRF18`）；全部 `+faststart`
 - **规范命名**：`library/videos/{platform}/{uploader}/{YYYYMMDD} - {title} [{id}].mp4`（模板可改，跨平台非法字符自动清洗）；字幕 SRT 与视频同目录同名存放，方便任何播放器自动加载
@@ -159,7 +159,24 @@ cd backend && uv run uvicorn app.main:app --reload --timeout-graceful-shutdown 5
 
 # 前端（Vite 开发服务器，自动代理 /api）
 cd frontend && npm run dev
+
+# 项目文档网站（VitePress，英文 /VidHarbor/，中文 /VidHarbor/zh/）
+cd website && npm ci && npm run dev
 ```
+
+### 项目网站与 GitHub Pages 部署
+
+项目网站位于 `website/`（VitePress 1.6.4），构建产物输出至 `website/dist`，通过 `.github/workflows/deploy-pages.yml` 在 `master` 分支推送或手动触发时发布至 `https://cyber-tao.github.io/VidHarbor/`：
+
+```bash
+cd website && npm ci && npm run build && npm run preview
+```
+
+仓库首次启用 GitHub Pages 的一次性设置步骤：
+
+1. 在 GitHub 仓库进入 **Settings → Pages → Build and deployment → Source**，选择 **GitHub Actions**。
+2. 确认仓库/组织策略允许运行 GitHub Actions 及官方 `actions/*`，且 `github-pages` 环境保护规则允许 `master` 分支部署。
+3. 推送提交至 `master` 分支（或在 Actions 页面手动点击 **Run workflow** 执行 `.github/workflows/deploy-pages.yml`）。若使用自定义域名，请在仓库 Pages 设置中绑定域名并完成 DNS 与 HTTPS 配置。
 
 运行测试 —— pytest 用例覆盖命名清洗/字幕解析/榜单服务/格式选择器/选项解析/编码器探测/
 cookies 导入/访问控制/设置/任务队列与定时任务（去重、并发、关闭）/API 冒烟：
@@ -291,7 +308,9 @@ vidharbor/
 │   │   └── …               # config / db / models / events / logging / naming
 │   ├── tests/              # pytest 用例
 │   └── run.py              # 跨平台启动入口
-├── frontend/               # Vue 3 + Vite + Tailwind + Naive UI + ECharts + Pinia
+├── frontend/               # Vue 3 + Vite + Tailwind + Naive UI + ECharts + Pinia（中英双语/深浅主题）
+├── website/                # VitePress 双语项目文档网站（构建产物输出至 website/dist）
+├── .github/workflows/      # deploy-pages.yml（master 分支 GitHub Pages 自动部署）
 ├── config.example.toml     # 复制为 config.toml（git 忽略）
 ├── Dockerfile              # 多阶段镜像：前端构建 + FastAPI/ffmpeg 运行时
 ├── docker-compose.yml      # Docker 部署（绑定挂载 ./data 与 ./library）

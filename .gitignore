@@ -10,9 +10,11 @@ venv/
 .coverage
 htmlcov/
 
-# ===== Node / frontend =====
+# ===== Node / frontend & website =====
 node_modules/
 frontend/dist/
+website/dist/
+website/docs/.vitepress/cache/
 *.local
 npm-debug.log*
 yarn-debug.log*
